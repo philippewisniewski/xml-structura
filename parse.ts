@@ -1,8 +1,106 @@
 import { XMLParser } from 'fast-xml-parser';
-import { readFileSync, writeFileSync } from 'fs';
-import { resolve } from 'path';
+import { readFileSync, writeFileSync, readdirSync } from 'fs';
+import { resolve, join, basename } from 'path';
+
+// ─── Interfaces ───────────────────────────────────────────────────────────────
+
+interface HKRecord {
+    type: string;
+    value: string;
+    startDate: string;
+    endDate: string;
+    sourceName: string;
+}
+
+interface HKWorkoutStatistics {
+    type: string;
+    average: string;
+    minimum: string;
+    maximum: string;
+    sum: string;
+}
+
+interface HKMetadataEntry {
+    key: string;
+    value: string;
+}
+
+interface HKWorkout {
+    workoutActivityType: string;
+    duration: string;
+    startDate: string;
+    WorkoutStatistics?: HKWorkoutStatistics[];
+    MetadataEntry?: HKMetadataEntry[];
+}
+
+interface DailyRecovery {
+    date: string;
+    sleepDurationHours: number | null;
+    hrvMs: number | null;
+    restingHeartRateBpm: number | null;
+    vo2MaxMlKgMin: number | null;
+    heartRateRecoveryBpm: number | null;
+    respiratoryRateBreathsPerMin: number | null;
+    wristTemperatureCelsius: number | null;
+    oxygenSaturationPercent: number | null;
+    sleepBreathingDisturbances: number | null;
+    timeInDaylightMinutes: number | null;
+}
+
+type RunInput = Omit<RunRecord, 'summary'>;
+
+interface RunRecord {
+    startedAt: string | null;
+    durationFormatted: string;
+    durationMinutes: number;
+    distanceKm: number | null;
+    pacePerKm: string | null;
+    heartRateAvgBpm: number | null;
+    heartRateMinBpm: number | null;
+    heartRateMaxBpm: number | null;
+    runningPowerWatts: number | null;
+    activeCaloriesKcal: number | null;
+    elevationGainMetres: number | null;
+    cadenceStepsPerMin: number | null;
+    groundContactTimeMs: number | null;
+    verticalOscillationCm: number | null;
+    strideLengthMetres: number | null;
+    recovery: {
+        nightBefore: DailyRecovery | null;
+        runDay: DailyRecovery | null;
+        dayAfter: DailyRecovery | null;
+    };
+    route: RouteData | null;
+    summary: string;
+}
+
+interface RouteData {
+    gpxFile: string;
+    startLat: number;
+    startLon: number;
+    kmSplits: number[];
+    routePolyline: [number, number][];
+}
+
+interface ParsedOutput {
+    exportedAt: string;
+    totalRuns: number;
+    runs: RunRecord[];
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const MILES_TO_KM = 1.60934;
+
+// ─── Setup ────────────────────────────────────────────────────────────────────
 
 const xmlPath = resolve(process.argv[2] || 'export.xml');
+
+// Parse optional --routes flag
+const routesFlagIndex = process.argv.indexOf('--routes');
+const routesDir: string | null = routesFlagIndex !== -1 && process.argv[routesFlagIndex + 1]
+    ? resolve(process.argv[routesFlagIndex + 1])
+    : resolve('workout-routes');
 
 console.log(`Reading XML from: ${xmlPath}`);
 
@@ -11,28 +109,37 @@ const xml = readFileSync(xmlPath, 'utf-8');
 const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '',
-    isArray: (name) => ['Workout', 'WorkoutStatistics', 'MetadataEntry', 'Record'].includes(name),
+    isArray: (name: string) => ['Workout', 'WorkoutStatistics', 'MetadataEntry', 'Record'].includes(name),
     processEntities: false,
 });
 
-const data = parser.parse(xml);
+interface HealthData {
+    HealthData?: {
+        Workout?: HKWorkout[];
+        Record?: HKRecord[];
+    };
+}
 
-const workouts = data?.HealthData?.Workout ?? [];
-const records = data?.HealthData?.Record ?? [];
+const data = parser.parse(xml) as HealthData;
+
+const workouts: HKWorkout[] = data?.HealthData?.Workout ?? [];
+const records: HKRecord[] = data?.HealthData?.Record ?? [];
 const runningWorkouts = workouts.filter(w => w.workoutActivityType === 'HKWorkoutActivityTypeRunning');
 
-console.log(`Found ${runningWorkouts.length} running workouts`);
-console.log(`Found ${records.length} health records`);
+console.log(`Found ${runningWorkouts.length.toLocaleString()} running workouts`);
+console.log(`Found ${records.length.toLocaleString()} health records`);
 
 // ─── Workout helpers ──────────────────────────────────────────────────────────
 
-function getStat(workout, type, attr = 'average') {
+type StatAttr = 'average' | 'minimum' | 'maximum' | 'sum';
+
+function getStat(workout: HKWorkout, type: string, attr: StatAttr = 'average'): number | null {
     const stats = workout.WorkoutStatistics ?? [];
     const match = stats.find(s => s.type === type);
     return match ? parseFloat(match[attr]) || null : null;
 }
 
-function getMeta(workout, key) {
+function getMeta(workout: HKWorkout, key: string): string | null {
     const entries = workout.MetadataEntry ?? [];
     const match = entries.find(e => e.key === key);
     return match ? match.value : null;
@@ -41,20 +148,20 @@ function getMeta(workout, key) {
 // ─── Recovery record helpers ──────────────────────────────────────────────────
 
 // Get all records of a given type
-function getRecordsByType(type) {
+function getRecordsByType(type: string): HKRecord[] {
     return records.filter(r => r.type === type);
 }
 
 // Extract date portion from a HealthKit date string
-function extractDate(dateStr) {
+function extractDate(dateStr: string | undefined): string | null {
     return dateStr?.split(' ')[0] ?? null;
 }
 
 // Build a daily index of recovery metrics keyed by date
-function buildDailyRecoveryIndex() {
-    const index = {};
+function buildDailyRecoveryIndex(): Record<string, DailyRecovery> {
+    const index: Record<string, DailyRecovery> = {};
 
-    const ensure = (date) => {
+    const ensure = (date: string): DailyRecovery => {
         if (!index[date]) {
             index[date] = {
                 date,
@@ -86,14 +193,14 @@ function buildDailyRecoveryIndex() {
         sleepStages.includes(r.value)
     );
 
-    const sleepByDate = {};
+    const sleepByDate: Record<string, number> = {};
     sleepRecords.forEach(r => {
         const date = extractDate(r.endDate);
         if (!date) return;
         if (!sleepByDate[date]) sleepByDate[date] = 0;
-        const start = new Date(r.startDate.replace(' ', 'T'));
-        const end = new Date(r.endDate.replace(' ', 'T'));
-        const durationHours = (end - start) / (1000 * 60 * 60);
+        const start = new Date(r.startDate.replace(' ', 'T').replace(/\s*([+-])(\d{2})(\d{2})$/, '$1$2:$3'));
+        const end = new Date(r.endDate.replace(' ', 'T').replace(/\s*([+-])(\d{2})(\d{2})$/, '$1$2:$3'));
+        const durationHours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
         sleepByDate[date] += durationHours;
     });
 
@@ -102,7 +209,7 @@ function buildDailyRecoveryIndex() {
     });
 
     // ── HRV (daily average) ─────────────────────────────────────────────────
-    const hrvByDate = {};
+    const hrvByDate: Record<string, number[]> = {};
     getRecordsByType('HKQuantityTypeIdentifierHeartRateVariabilitySDNN').forEach(r => {
         const date = extractDate(r.startDate);
         if (!date || !r.value) return;
@@ -136,7 +243,7 @@ function buildDailyRecoveryIndex() {
     });
 
     // ── Respiratory rate (daily average) ───────────────────────────────────
-    const respByDate = {};
+    const respByDate: Record<string, number[]> = {};
     getRecordsByType('HKQuantityTypeIdentifierRespiratoryRate').forEach(r => {
         const date = extractDate(r.startDate);
         if (!date || !r.value) return;
@@ -156,7 +263,7 @@ function buildDailyRecoveryIndex() {
     });
 
     // ── Oxygen saturation (daily average) ──────────────────────────────────
-    const spo2ByDate = {};
+    const spo2ByDate: Record<string, number[]> = {};
     getRecordsByType('HKQuantityTypeIdentifierOxygenSaturation').forEach(r => {
         const date = extractDate(r.startDate);
         if (!date || !r.value) return;
@@ -176,7 +283,7 @@ function buildDailyRecoveryIndex() {
     });
 
     // ── Time in daylight (daily total) ──────────────────────────────────────
-    const daylightByDate = {};
+    const daylightByDate: Record<string, number> = {};
     records.filter(r => r.type === 'HKQuantityTypeIdentifierTimeInDaylight').forEach(r => {
         const date = extractDate(r.startDate);
         if (!date || !r.value) return;
@@ -192,14 +299,14 @@ function buildDailyRecoveryIndex() {
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 
-function formatPace(pace) {
+function formatPace(pace: number | null): string | null {
     if (!pace) return null;
     const mins = Math.floor(pace);
     const secs = String(Math.round((pace % 1) * 60)).padStart(2, '0');
     return `${mins}:${secs} min/km`;
 }
 
-function formatDate(isoDate) {
+function formatDate(isoDate: string): string {
     return new Date(isoDate).toLocaleDateString('en-GB', {
         weekday: 'long',
         day: 'numeric',
@@ -208,12 +315,174 @@ function formatDate(isoDate) {
     });
 }
 
+// ─── GPX parsing ─────────────────────────────────────────────────────────────
+
+interface TrkPoint {
+    lat: number;
+    lon: number;
+    time: Date;
+}
+
+// Haversine formula — returns distance in km between two lat/lon points
+function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371;
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+interface ParsedGpx {
+    filename: string;
+    firstTimestamp: Date;
+    points: TrkPoint[];
+}
+
+const gpxParser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: '',
+    isArray: (name: string) => name === 'trkpt',
+    processEntities: false,
+});
+
+function parseGpxFile(filePath: string): ParsedGpx | null {
+    try {
+        const content = readFileSync(filePath, 'utf-8');
+        const parsed = gpxParser.parse(content) as {
+            gpx?: {
+                trk?: {
+                    trkseg?: {
+                        trkpt?: Array<{ lat: string; lon: string; time: string }>;
+                    };
+                };
+            };
+        };
+
+        const trkpts = parsed?.gpx?.trk?.trkseg?.trkpt;
+        if (!trkpts || trkpts.length === 0) return null;
+
+        const points: TrkPoint[] = trkpts
+            .map(pt => {
+                const lat = parseFloat(pt.lat);
+                const lon = parseFloat(pt.lon);
+                const time = new Date(pt.time);
+                if (isNaN(lat) || isNaN(lon) || isNaN(time.getTime())) return null;
+                return { lat, lon, time };
+            })
+            .filter((pt): pt is TrkPoint => pt !== null);
+
+        if (points.length === 0) return null;
+
+        return {
+            filename: basename(filePath),
+            firstTimestamp: points[0].time,
+            points,
+        };
+    } catch {
+        return null;
+    }
+}
+
+function buildRouteData(gpx: ParsedGpx): RouteData {
+    const { points } = gpx;
+
+    const startLat = points[0].lat;
+    const startLon = points[0].lon;
+
+    // Downsample: every 10th point for the polyline
+    const routePolyline: [number, number][] = points
+        .filter((_, i) => i % 10 === 0)
+        .map(pt => [pt.lat, pt.lon]);
+
+    // Compute km splits from cumulative distance and per-point timestamps
+    // Only meaningful when timestamps vary across points
+    const kmSplits: number[] = [];
+    let cumulativeDist = 0;
+    let kmBoundary = 1;
+    let kmStartTime = points[0].time;
+    let prevPt = points[0];
+
+    for (let i = 1; i < points.length; i++) {
+        const pt = points[i];
+        cumulativeDist += haversine(prevPt.lat, prevPt.lon, pt.lat, pt.lon);
+
+        if (cumulativeDist >= kmBoundary) {
+            const elapsedMs = pt.time.getTime() - kmStartTime.getTime();
+            const elapsedMin = elapsedMs / 1000 / 60;
+            // Skip splits with zero time (identical timestamps) or > 12 min/km (GPS pause)
+            if (elapsedMin > 0 && elapsedMin <= 12) {
+                kmSplits.push(parseFloat(elapsedMin.toFixed(2)));
+            }
+            kmStartTime = pt.time;
+            kmBoundary++;
+        }
+
+        prevPt = pt;
+    }
+
+    return {
+        gpxFile: gpx.filename,
+        startLat,
+        startLon,
+        kmSplits,
+        routePolyline,
+    };
+}
+
+// Build a map from GPX first-trkpt timestamp (ms) → RouteData for fast matching
+function buildRouteIndex(dir: string): Map<number, RouteData> {
+    const index = new Map<number, RouteData>();
+    let files: string[];
+
+    try {
+        files = readdirSync(dir).filter(f => f.endsWith('.gpx'));
+    } catch (err) {
+        console.warn(`Warning: could not read routes directory "${dir}": ${err}`);
+        return index;
+    }
+
+    console.log(`Parsing ${files.length} GPX files from: ${dir}`);
+
+    for (const file of files) {
+        const gpx = parseGpxFile(join(dir, file));
+        if (!gpx) continue;
+        const routeData = buildRouteData(gpx);
+        index.set(gpx.firstTimestamp.getTime(), routeData);
+    }
+
+    console.log(`Loaded ${index.size} GPX routes`);
+    return index;
+}
+
+// Match a run's startedAt (ISO string) to a GPX route within ±5 minutes
+const MATCH_WINDOW_MS = 5 * 60 * 1000;
+
+function matchRoute(startedAt: string | null, routeIndex: Map<number, RouteData>): RouteData | null {
+    if (!startedAt || routeIndex.size === 0) return null;
+    const runMs = new Date(startedAt).getTime();
+    if (isNaN(runMs)) return null;
+
+    let best: RouteData | null = null;
+    let bestDiff = Infinity;
+    for (const [gpxMs, routeData] of routeIndex) {
+        const diff = Math.abs(gpxMs - runMs);
+        if (diff <= MATCH_WINDOW_MS && diff < bestDiff) {
+            best = routeData;
+            bestDiff = diff;
+        }
+    }
+    return best;
+}
+
 // Build an enriched natural language summary with qualitative descriptors
 // and recovery context — gives EmbeddingGemma semantic hooks per run
-function buildSummary(run) {
-    const runType = run.distanceKm > 15 ? 'long endurance run'
-        : run.distanceKm > 10 ? 'medium long run'
-        : run.distanceKm < 8 ? 'short run'
+function buildSummary(run: RunInput): string {
+    const runType = run.distanceKm && run.distanceKm > 15 ? 'long endurance run'
+        : run.distanceKm && run.distanceKm > 10 ? 'medium long run'
+        : run.distanceKm && run.distanceKm < 8 ? 'short run'
         : 'medium distance run';
 
     const paceDecimal = run.pacePerKm
@@ -259,8 +528,27 @@ function buildSummary(run) {
     // Resting HR on run day
     const restingHR = run.recovery?.runDay?.restingHeartRateBpm ?? null;
 
+    // Pacing pattern from km splits — compare first third average vs last third average
+    // for robustness against individual outlier splits
+    const kmSplits = run.route?.kmSplits ?? [];
+    let pacingDesc: string | null = null;
+    if (kmSplits.length >= 3) {
+        const third = Math.floor(kmSplits.length / 3);
+        const firstThird = kmSplits.slice(0, third);
+        const lastThird = kmSplits.slice(-third);
+        const avg = (splits: number[]) => splits.reduce((a, b) => a + b, 0) / splits.length;
+        const diff = avg(lastThird) - avg(firstThird);
+        if (diff < -0.5) {
+            pacingDesc = 'negative split';
+        } else if (diff > 0.5) {
+            pacingDesc = 'positive split';
+        } else {
+            pacingDesc = 'even pacing';
+        }
+    }
+
     return [
-        `${runType} of ${run.distanceKm}km on ${formatDate(run.startedAt)}`,
+        `${runType} of ${run.distanceKm}km on ${run.startedAt ? formatDate(run.startedAt) : 'unknown date'}`,
         `completed in ${run.durationFormatted} at a ${paceDesc} of ${run.pacePerKm}`,
         effortDesc ? `${effortDesc} with average heart rate ${run.heartRateAvgBpm}bpm` : null,
         run.heartRateMaxBpm ? `max heart rate ${run.heartRateMaxBpm}bpm` : null,
@@ -274,6 +562,7 @@ function buildSummary(run) {
         hrvDesc ? hrvDesc : null,
         sleepDesc ? sleepDesc : null,
         restingHR ? `resting heart rate ${restingHR}bpm on run day` : null,
+        pacingDesc,
     ].filter(Boolean).join(', ');
 }
 
@@ -281,18 +570,24 @@ function buildSummary(run) {
 
 console.log('Building daily recovery index...');
 const recoveryIndex = buildDailyRecoveryIndex();
-console.log(`Recovery data available for ${Object.keys(recoveryIndex).length} days`);
+console.log(`Recovery data available for ${Object.keys(recoveryIndex).length.toLocaleString()} days`);
+
+// ─── Build route index ────────────────────────────────────────────────────────
+
+const routeIndex: Map<number, RouteData> = routesDir
+    ? buildRouteIndex(routesDir)
+    : new Map();
 
 // ─── Parse runs ───────────────────────────────────────────────────────────────
 
-const runs = runningWorkouts.map(workout => {
+const runs: RunRecord[] = runningWorkouts.map(workout => {
     const durationRaw = parseFloat(workout.duration);
     const durationMins = Math.floor(durationRaw);
     const durationSecs = Math.round((durationRaw - durationMins) * 60);
     const durationFormatted = `${durationMins}m ${durationSecs}s`;
 
     const distanceRaw = getStat(workout, 'HKQuantityTypeIdentifierDistanceWalkingRunning', 'sum');
-    const distanceKm = distanceRaw ? parseFloat((distanceRaw * 1.60934).toFixed(2)) : null;
+    const distanceKm = distanceRaw ? parseFloat((distanceRaw * MILES_TO_KM).toFixed(2)) : null;
 
     const elevationRaw = getMeta(workout, 'HKElevationAscended');
     const elevationGainMetres = elevationRaw ? parseFloat((parseFloat(elevationRaw) / 100).toFixed(1)) : null;
@@ -316,8 +611,13 @@ const runs = runningWorkouts.map(workout => {
     const strideLength = getStat(workout, 'HKQuantityTypeIdentifierRunningStrideLength');
 
     const startDate = workout.startDate ?? null;
+    // Convert HealthKit date format "2025-05-03 18:25:15 +0100" to a proper UTC ISO string
+    // by parsing the timezone offset and adjusting to UTC
     const startedAt = startDate
-        ? startDate.replace(' ', 'T').replace(/\s*[+-]\d{4}$/, 'Z')
+        ? (() => {
+            const isoLike = startDate.replace(' ', 'T').replace(/\s*([+-])(\d{2})(\d{2})$/, '$1$2:$3');
+            return new Date(isoLike).toISOString();
+        })()
         : null;
 
     const runDate = startDate?.split(' ')[0] ?? null;
@@ -336,7 +636,7 @@ const runs = runningWorkouts.map(workout => {
         dayAfter: nextDate ? (recoveryIndex[nextDate] ?? null) : null,
     };
 
-    const run = {
+    const runBase: RunInput = {
         startedAt,
         durationFormatted,
         durationMinutes: parseFloat(durationRaw.toFixed(2)),
@@ -355,11 +655,10 @@ const runs = runningWorkouts.map(workout => {
         verticalOscillationCm: verticalOscillation ? parseFloat(verticalOscillation.toFixed(1)) : null,
         strideLengthMetres: strideLength ? parseFloat(strideLength.toFixed(2)) : null,
         recovery,
+        route: matchRoute(startedAt, routeIndex),
     };
 
-    run.summary = buildSummary(run);
-
-    return run;
+    return { ...runBase, summary: buildSummary(runBase) };
 });
 
 // ─── Filter valid runs ────────────────────────────────────────────────────────
@@ -378,7 +677,7 @@ const validRuns = runs.filter(r => {
 
 // ─── Output ───────────────────────────────────────────────────────────────────
 
-const output = {
+const output: ParsedOutput = {
     exportedAt: new Date().toISOString(),
     totalRuns: validRuns.length,
     runs: validRuns,
@@ -388,6 +687,6 @@ const outPath = resolve('runs.json');
 writeFileSync(outPath, JSON.stringify(output, null, 2));
 
 console.log(`Written to: ${outPath}`);
-console.log(`Valid runs: ${validRuns.length} of ${runs.length}`);
+console.log(`Valid runs: ${validRuns.length.toLocaleString()} of ${runs.length.toLocaleString()}`);
 console.log('\nSample run (most recent):');
 console.log(JSON.stringify(validRuns[validRuns.length - 1], null, 2));
