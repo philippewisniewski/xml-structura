@@ -528,19 +528,20 @@ function buildSummary(run: RunInput): string {
     // Resting HR on run day
     const restingHR = run.recovery?.runDay?.restingHeartRateBpm ?? null;
 
-    // Pacing pattern from km splits — compare first third average vs last third average
-    // for robustness against individual outlier splits
+    // Pacing pattern: compare first half vs second half average pace.
+    // Threshold: 5 sec/km (5/60 decimal minutes) — matches running-agent computation.
     const kmSplits = run.route?.kmSplits ?? [];
     let pacingDesc: string | null = null;
-    if (kmSplits.length >= 3) {
-        const third = Math.floor(kmSplits.length / 3);
-        const firstThird = kmSplits.slice(0, third);
-        const lastThird = kmSplits.slice(-third);
+    if (kmSplits.length >= 2) {
+        const mid = Math.floor(kmSplits.length / 2);
+        const firstHalf = kmSplits.slice(0, mid);
+        const secondHalf = kmSplits.slice(mid);
         const avg = (splits: number[]) => splits.reduce((a, b) => a + b, 0) / splits.length;
-        const diff = avg(lastThird) - avg(firstThird);
-        if (diff < -0.5) {
+        const diff = avg(secondHalf) - avg(firstHalf);
+        const THRESHOLD = 5 / 60; // 5 seconds as decimal minutes
+        if (diff < -THRESHOLD) {
             pacingDesc = 'negative split';
-        } else if (diff > 0.5) {
+        } else if (diff > THRESHOLD) {
             pacingDesc = 'positive split';
         } else {
             pacingDesc = 'even pacing';
