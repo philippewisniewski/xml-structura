@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
-import { readFileSync, writeFileSync } from 'fs';
-import { resolve } from 'path';
+import { readFileSync, writeFileSync, readdirSync } from 'fs';
+import { resolve, join, basename } from 'path';
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -70,7 +70,16 @@ interface RunRecord {
         runDay: DailyRecovery | null;
         dayAfter: DailyRecovery | null;
     };
+    route: RouteData | null;
     summary: string;
+}
+
+interface RouteData {
+    gpxFile: string;
+    startLat: number;
+    startLon: number;
+    kmSplits: number[];
+    routePolyline: [number, number][];
 }
 
 interface ParsedOutput {
@@ -86,6 +95,12 @@ const MILES_TO_KM = 1.60934;
 // ─── Setup ────────────────────────────────────────────────────────────────────
 
 const xmlPath = resolve(process.argv[2] || 'export.xml');
+
+// Parse optional --routes flag
+const routesFlagIndex = process.argv.indexOf('--routes');
+const routesDir: string | null = routesFlagIndex !== -1 && process.argv[routesFlagIndex + 1]
+    ? resolve(process.argv[routesFlagIndex + 1])
+    : resolve('workout-routes');
 
 console.log(`Reading XML from: ${xmlPath}`);
 
@@ -111,8 +126,8 @@ const workouts: HKWorkout[] = data?.HealthData?.Workout ?? [];
 const records: HKRecord[] = data?.HealthData?.Record ?? [];
 const runningWorkouts = workouts.filter(w => w.workoutActivityType === 'HKWorkoutActivityTypeRunning');
 
-console.log(`Found ${runningWorkouts.length} running workouts`);
-console.log(`Found ${records.length} health records`);
+console.log(`Found ${runningWorkouts.length.toLocaleString()} running workouts`);
+console.log(`Found ${records.length.toLocaleString()} health records`);
 
 // ─── Workout helpers ──────────────────────────────────────────────────────────
 
@@ -183,8 +198,8 @@ function buildDailyRecoveryIndex(): Record<string, DailyRecovery> {
         const date = extractDate(r.endDate);
         if (!date) return;
         if (!sleepByDate[date]) sleepByDate[date] = 0;
-        const start = new Date(r.startDate.replace(' ', 'T'));
-        const end = new Date(r.endDate.replace(' ', 'T'));
+        const start = new Date(r.startDate.replace(' ', 'T').replace(/\s*([+-])(\d{2})(\d{2})$/, '$1$2:$3'));
+        const end = new Date(r.endDate.replace(' ', 'T').replace(/\s*([+-])(\d{2})(\d{2})$/, '$1$2:$3'));
         const durationHours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
         sleepByDate[date] += durationHours;
     });
@@ -300,6 +315,168 @@ function formatDate(isoDate: string): string {
     });
 }
 
+// ─── GPX parsing ─────────────────────────────────────────────────────────────
+
+interface TrkPoint {
+    lat: number;
+    lon: number;
+    time: Date;
+}
+
+// Haversine formula — returns distance in km between two lat/lon points
+function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371;
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+interface ParsedGpx {
+    filename: string;
+    firstTimestamp: Date;
+    points: TrkPoint[];
+}
+
+const gpxParser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: '',
+    isArray: (name: string) => name === 'trkpt',
+    processEntities: false,
+});
+
+function parseGpxFile(filePath: string): ParsedGpx | null {
+    try {
+        const content = readFileSync(filePath, 'utf-8');
+        const parsed = gpxParser.parse(content) as {
+            gpx?: {
+                trk?: {
+                    trkseg?: {
+                        trkpt?: Array<{ lat: string; lon: string; time: string }>;
+                    };
+                };
+            };
+        };
+
+        const trkpts = parsed?.gpx?.trk?.trkseg?.trkpt;
+        if (!trkpts || trkpts.length === 0) return null;
+
+        const points: TrkPoint[] = trkpts
+            .map(pt => {
+                const lat = parseFloat(pt.lat);
+                const lon = parseFloat(pt.lon);
+                const time = new Date(pt.time);
+                if (isNaN(lat) || isNaN(lon) || isNaN(time.getTime())) return null;
+                return { lat, lon, time };
+            })
+            .filter((pt): pt is TrkPoint => pt !== null);
+
+        if (points.length === 0) return null;
+
+        return {
+            filename: basename(filePath),
+            firstTimestamp: points[0].time,
+            points,
+        };
+    } catch {
+        return null;
+    }
+}
+
+function buildRouteData(gpx: ParsedGpx): RouteData {
+    const { points } = gpx;
+
+    const startLat = points[0].lat;
+    const startLon = points[0].lon;
+
+    // Downsample: every 10th point for the polyline
+    const routePolyline: [number, number][] = points
+        .filter((_, i) => i % 10 === 0)
+        .map(pt => [pt.lat, pt.lon]);
+
+    // Compute km splits from cumulative distance and per-point timestamps
+    // Only meaningful when timestamps vary across points
+    const kmSplits: number[] = [];
+    let cumulativeDist = 0;
+    let kmBoundary = 1;
+    let kmStartTime = points[0].time;
+    let prevPt = points[0];
+
+    for (let i = 1; i < points.length; i++) {
+        const pt = points[i];
+        cumulativeDist += haversine(prevPt.lat, prevPt.lon, pt.lat, pt.lon);
+
+        if (cumulativeDist >= kmBoundary) {
+            const elapsedMs = pt.time.getTime() - kmStartTime.getTime();
+            const elapsedMin = elapsedMs / 1000 / 60;
+            // Skip splits with zero time (identical timestamps) or > 12 min/km (GPS pause)
+            if (elapsedMin > 0 && elapsedMin <= 12) {
+                kmSplits.push(parseFloat(elapsedMin.toFixed(2)));
+            }
+            kmStartTime = pt.time;
+            kmBoundary++;
+        }
+
+        prevPt = pt;
+    }
+
+    return {
+        gpxFile: gpx.filename,
+        startLat,
+        startLon,
+        kmSplits,
+        routePolyline,
+    };
+}
+
+// Build a map from GPX first-trkpt timestamp (ms) → RouteData for fast matching
+function buildRouteIndex(dir: string): Map<number, RouteData> {
+    const index = new Map<number, RouteData>();
+    let files: string[];
+
+    try {
+        files = readdirSync(dir).filter(f => f.endsWith('.gpx'));
+    } catch (err) {
+        console.warn(`Warning: could not read routes directory "${dir}": ${err}`);
+        return index;
+    }
+
+    console.log(`Parsing ${files.length} GPX files from: ${dir}`);
+
+    for (const file of files) {
+        const gpx = parseGpxFile(join(dir, file));
+        if (!gpx) continue;
+        const routeData = buildRouteData(gpx);
+        index.set(gpx.firstTimestamp.getTime(), routeData);
+    }
+
+    console.log(`Loaded ${index.size} GPX routes`);
+    return index;
+}
+
+// Match a run's startedAt (ISO string) to a GPX route within ±5 minutes
+const MATCH_WINDOW_MS = 5 * 60 * 1000;
+
+function matchRoute(startedAt: string | null, routeIndex: Map<number, RouteData>): RouteData | null {
+    if (!startedAt || routeIndex.size === 0) return null;
+    const runMs = new Date(startedAt).getTime();
+    if (isNaN(runMs)) return null;
+
+    let best: RouteData | null = null;
+    let bestDiff = Infinity;
+    for (const [gpxMs, routeData] of routeIndex) {
+        const diff = Math.abs(gpxMs - runMs);
+        if (diff <= MATCH_WINDOW_MS && diff < bestDiff) {
+            best = routeData;
+            bestDiff = diff;
+        }
+    }
+    return best;
+}
+
 // Build an enriched natural language summary with qualitative descriptors
 // and recovery context — gives EmbeddingGemma semantic hooks per run
 function buildSummary(run: RunInput): string {
@@ -351,6 +528,25 @@ function buildSummary(run: RunInput): string {
     // Resting HR on run day
     const restingHR = run.recovery?.runDay?.restingHeartRateBpm ?? null;
 
+    // Pacing pattern from km splits — compare first third average vs last third average
+    // for robustness against individual outlier splits
+    const kmSplits = run.route?.kmSplits ?? [];
+    let pacingDesc: string | null = null;
+    if (kmSplits.length >= 3) {
+        const third = Math.floor(kmSplits.length / 3);
+        const firstThird = kmSplits.slice(0, third);
+        const lastThird = kmSplits.slice(-third);
+        const avg = (splits: number[]) => splits.reduce((a, b) => a + b, 0) / splits.length;
+        const diff = avg(lastThird) - avg(firstThird);
+        if (diff < -0.5) {
+            pacingDesc = 'negative split';
+        } else if (diff > 0.5) {
+            pacingDesc = 'positive split';
+        } else {
+            pacingDesc = 'even pacing';
+        }
+    }
+
     return [
         `${runType} of ${run.distanceKm}km on ${run.startedAt ? formatDate(run.startedAt) : 'unknown date'}`,
         `completed in ${run.durationFormatted} at a ${paceDesc} of ${run.pacePerKm}`,
@@ -366,6 +562,7 @@ function buildSummary(run: RunInput): string {
         hrvDesc ? hrvDesc : null,
         sleepDesc ? sleepDesc : null,
         restingHR ? `resting heart rate ${restingHR}bpm on run day` : null,
+        pacingDesc,
     ].filter(Boolean).join(', ');
 }
 
@@ -373,7 +570,13 @@ function buildSummary(run: RunInput): string {
 
 console.log('Building daily recovery index...');
 const recoveryIndex = buildDailyRecoveryIndex();
-console.log(`Recovery data available for ${Object.keys(recoveryIndex).length} days`);
+console.log(`Recovery data available for ${Object.keys(recoveryIndex).length.toLocaleString()} days`);
+
+// ─── Build route index ────────────────────────────────────────────────────────
+
+const routeIndex: Map<number, RouteData> = routesDir
+    ? buildRouteIndex(routesDir)
+    : new Map();
 
 // ─── Parse runs ───────────────────────────────────────────────────────────────
 
@@ -408,8 +611,13 @@ const runs: RunRecord[] = runningWorkouts.map(workout => {
     const strideLength = getStat(workout, 'HKQuantityTypeIdentifierRunningStrideLength');
 
     const startDate = workout.startDate ?? null;
+    // Convert HealthKit date format "2025-05-03 18:25:15 +0100" to a proper UTC ISO string
+    // by parsing the timezone offset and adjusting to UTC
     const startedAt = startDate
-        ? startDate.replace(' ', 'T').replace(/\s*[+-]\d{4}$/, 'Z')
+        ? (() => {
+            const isoLike = startDate.replace(' ', 'T').replace(/\s*([+-])(\d{2})(\d{2})$/, '$1$2:$3');
+            return new Date(isoLike).toISOString();
+        })()
         : null;
 
     const runDate = startDate?.split(' ')[0] ?? null;
@@ -447,6 +655,7 @@ const runs: RunRecord[] = runningWorkouts.map(workout => {
         verticalOscillationCm: verticalOscillation ? parseFloat(verticalOscillation.toFixed(1)) : null,
         strideLengthMetres: strideLength ? parseFloat(strideLength.toFixed(2)) : null,
         recovery,
+        route: matchRoute(startedAt, routeIndex),
     };
 
     return { ...runBase, summary: buildSummary(runBase) };
@@ -478,6 +687,6 @@ const outPath = resolve('runs.json');
 writeFileSync(outPath, JSON.stringify(output, null, 2));
 
 console.log(`Written to: ${outPath}`);
-console.log(`Valid runs: ${validRuns.length} of ${runs.length}`);
+console.log(`Valid runs: ${validRuns.length.toLocaleString()} of ${runs.length.toLocaleString()}`);
 console.log('\nSample run (most recent):');
 console.log(JSON.stringify(validRuns[validRuns.length - 1], null, 2));

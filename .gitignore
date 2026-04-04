@@ -1,4 +1,5 @@
 node_modules/
 export.xml
 runs.json
+workout-routes/
 !test/mock-export.xml
