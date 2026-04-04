@@ -1,3 +1,4 @@
 node_modules/
 export.xml
 runs.json
+!test/mock-export.xml
