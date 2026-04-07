@@ -47,14 +47,13 @@ interface DailyRecovery {
     timeInDaylightMinutes: number | null;
 }
 
-type RunInput = Omit<RunRecord, 'summary'>;
-
 interface RunRecord {
     startedAt: string | null;
     durationFormatted: string;
     durationMinutes: number;
+    durationSeconds: number;
     distanceKm: number | null;
-    pacePerKm: string | null;
+    paceSeconds: number | null;
     heartRateAvgBpm: number | null;
     heartRateMinBpm: number | null;
     heartRateMaxBpm: number | null;
@@ -71,7 +70,6 @@ interface RunRecord {
         dayAfter: DailyRecovery | null;
     };
     route: RouteData | null;
-    summary: string;
 }
 
 interface RouteData {
@@ -414,7 +412,7 @@ function buildRouteData(gpx: ParsedGpx): RouteData {
             const elapsedMin = elapsedMs / 1000 / 60;
             // Skip splits with zero time (identical timestamps) or > 12 min/km (GPS pause)
             if (elapsedMin > 0 && elapsedMin <= 12) {
-                kmSplits.push(parseFloat(elapsedMin.toFixed(2)));
+                kmSplits.push(Math.round(elapsedMin * 60));
             }
             kmStartTime = pt.time;
             kmBoundary++;
@@ -475,96 +473,6 @@ function matchRoute(startedAt: string | null, routeIndex: Map<number, RouteData>
         }
     }
     return best;
-}
-
-// Build an enriched natural language summary with qualitative descriptors
-// and recovery context — gives EmbeddingGemma semantic hooks per run
-function buildSummary(run: RunInput): string {
-    const runType = run.distanceKm && run.distanceKm > 15 ? 'long endurance run'
-        : run.distanceKm && run.distanceKm > 10 ? 'medium long run'
-        : run.distanceKm && run.distanceKm < 8 ? 'short run'
-        : 'medium distance run';
-
-    const paceDecimal = run.pacePerKm
-        ? parseInt(run.pacePerKm) + parseInt(run.pacePerKm.split(':')[1]) / 60
-        : null;
-    const paceDesc = !paceDecimal ? ''
-        : paceDecimal < 5 ? 'fast pace'
-        : paceDecimal < 5.5 ? 'moderate fast pace'
-        : paceDecimal < 6 ? 'moderate pace'
-        : 'easy pace';
-
-    const gctDesc = !run.groundContactTimeMs ? null
-        : run.groundContactTimeMs < 255 ? 'excellent ground contact time'
-        : run.groundContactTimeMs < 265 ? 'good ground contact time'
-        : run.groundContactTimeMs < 275 ? 'average ground contact time'
-        : 'higher ground contact time';
-
-    const elevDesc = !run.elevationGainMetres ? null
-        : run.elevationGainMetres > 200 ? 'hilly route with significant elevation'
-        : run.elevationGainMetres > 100 ? 'moderate elevation'
-        : 'relatively flat route';
-
-    const effortDesc = !run.heartRateAvgBpm ? null
-        : run.heartRateAvgBpm > 180 ? 'very high effort'
-        : run.heartRateAvgBpm > 170 ? 'high effort'
-        : run.heartRateAvgBpm > 160 ? 'moderate effort'
-        : 'easy effort';
-
-    // Use runDay HRV if nightBefore is not available
-    const hrvSource = run.recovery?.nightBefore?.hrvMs ?? run.recovery?.runDay?.hrvMs ?? null;
-    const hrvDesc = !hrvSource ? null
-        : hrvSource > 60 ? 'good pre-run recovery (high HRV)'
-        : hrvSource < 40 ? 'poor pre-run recovery (low HRV)'
-        : 'moderate pre-run recovery';
-
-    // Sleep from night before
-    const sleepSource = run.recovery?.nightBefore?.sleepDurationHours ?? null;
-    const sleepDesc = !sleepSource ? null
-        : sleepSource >= 7 ? `good sleep of ${sleepSource} hours before run`
-        : sleepSource < 6 ? `poor sleep of ${sleepSource} hours before run`
-        : `${sleepSource} hours sleep before run`;
-
-    // Resting HR on run day
-    const restingHR = run.recovery?.runDay?.restingHeartRateBpm ?? null;
-
-    // Pacing pattern: compare first half vs second half average pace.
-    // Threshold: 5 sec/km (5/60 decimal minutes) — matches running-agent computation.
-    const kmSplits = run.route?.kmSplits ?? [];
-    let pacingDesc: string | null = null;
-    if (kmSplits.length >= 2) {
-        const mid = Math.floor(kmSplits.length / 2);
-        const firstHalf = kmSplits.slice(0, mid);
-        const secondHalf = kmSplits.slice(mid);
-        const avg = (splits: number[]) => splits.reduce((a, b) => a + b, 0) / splits.length;
-        const diff = avg(secondHalf) - avg(firstHalf);
-        const THRESHOLD = 5 / 60; // 5 seconds as decimal minutes
-        if (diff < -THRESHOLD) {
-            pacingDesc = 'negative split';
-        } else if (diff > THRESHOLD) {
-            pacingDesc = 'positive split';
-        } else {
-            pacingDesc = 'even pacing';
-        }
-    }
-
-    return [
-        `${runType} of ${run.distanceKm}km on ${run.startedAt ? formatDate(run.startedAt) : 'unknown date'}`,
-        `completed in ${run.durationFormatted} at a ${paceDesc} of ${run.pacePerKm}`,
-        effortDesc ? `${effortDesc} with average heart rate ${run.heartRateAvgBpm}bpm` : null,
-        run.heartRateMaxBpm ? `max heart rate ${run.heartRateMaxBpm}bpm` : null,
-        run.runningPowerWatts ? `running power ${run.runningPowerWatts}W` : null,
-        elevDesc ? `${elevDesc} of ${run.elevationGainMetres}m` : null,
-        run.cadenceStepsPerMin ? `cadence ${run.cadenceStepsPerMin} steps/min` : null,
-        gctDesc ? `${gctDesc} of ${run.groundContactTimeMs}ms` : null,
-        run.strideLengthMetres ? `stride length ${run.strideLengthMetres}m` : null,
-        run.verticalOscillationCm ? `vertical oscillation ${run.verticalOscillationCm}cm` : null,
-        run.activeCaloriesKcal ? `active calories ${run.activeCaloriesKcal}kcal` : null,
-        hrvDesc ? hrvDesc : null,
-        sleepDesc ? sleepDesc : null,
-        restingHR ? `resting heart rate ${restingHR}bpm on run day` : null,
-        pacingDesc,
-    ].filter(Boolean).join(', ');
 }
 
 // ─── Build recovery index ─────────────────────────────────────────────────────
@@ -637,12 +545,13 @@ const runs: RunRecord[] = runningWorkouts.map(workout => {
         dayAfter: nextDate ? (recoveryIndex[nextDate] ?? null) : null,
     };
 
-    const runBase: RunInput = {
+    const runBase: RunRecord = {
         startedAt,
         durationFormatted,
         durationMinutes: parseFloat(durationRaw.toFixed(2)),
+        durationSeconds: Math.round(durationRaw * 60),
         distanceKm,
-        pacePerKm: formatPace(paceDecimal),
+        paceSeconds: paceDecimal !== null ? Math.round(paceDecimal * 60) : null,
         heartRateAvgBpm: heartRateAvg ? Math.round(heartRateAvg) : null,
         heartRateMinBpm: heartRateMin ? Math.round(heartRateMin) : null,
         heartRateMaxBpm: heartRateMax ? Math.round(heartRateMax) : null,
@@ -659,20 +568,19 @@ const runs: RunRecord[] = runningWorkouts.map(workout => {
         route: matchRoute(startedAt, routeIndex),
     };
 
-    return { ...runBase, summary: buildSummary(runBase) };
+    return runBase;
 });
 
 // ─── Filter valid runs ────────────────────────────────────────────────────────
 
 const validRuns = runs.filter(r => {
     if (!r.distanceKm || r.distanceKm <= 1) return false;
-    if (!r.pacePerKm) return false;
+    if (!r.paceSeconds) return false;
     if (r.durationMinutes <= 5) return false;
     if (!r.groundContactTimeMs) return false;
     if (!r.strideLengthMetres) return false;
     if (!r.verticalOscillationCm) return false;
-    const paceDecimal = parseInt(r.pacePerKm) + parseInt(r.pacePerKm.split(':')[1]) / 60;
-    if (paceDecimal > 10) return false;
+    if (r.paceSeconds > 600) return false;
     return true;
 });
 
