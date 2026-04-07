@@ -295,24 +295,6 @@ function buildDailyRecoveryIndex(): Record<string, DailyRecovery> {
     return index;
 }
 
-// ─── Formatting helpers ───────────────────────────────────────────────────────
-
-function formatPace(pace: number | null): string | null {
-    if (!pace) return null;
-    const mins = Math.floor(pace);
-    const secs = String(Math.round((pace % 1) * 60)).padStart(2, '0');
-    return `${mins}:${secs} min/km`;
-}
-
-function formatDate(isoDate: string): string {
-    return new Date(isoDate).toLocaleDateString('en-GB', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-    });
-}
-
 // ─── GPX parsing ─────────────────────────────────────────────────────────────
 
 interface TrkPoint {
