@@ -77,6 +77,8 @@ interface RouteData {
     startLat: number;
     startLon: number;
     kmSplits: number[];
+    kmElevationGain: number[];
+    kmElevationLoss: number[];
     routePolyline: [number, number][];
 }
 
@@ -300,6 +302,7 @@ function buildDailyRecoveryIndex(): Record<string, DailyRecovery> {
 interface TrkPoint {
     lat: number;
     lon: number;
+    ele: number | null;
     time: Date;
 }
 
@@ -335,7 +338,7 @@ function parseGpxFile(filePath: string): ParsedGpx | null {
             gpx?: {
                 trk?: {
                     trkseg?: {
-                        trkpt?: Array<{ lat: string; lon: string; time: string }>;
+                        trkpt?: Array<{ lat: string; lon: string; ele?: string | number; time: string }>;
                     };
                 };
             };
@@ -349,8 +352,9 @@ function parseGpxFile(filePath: string): ParsedGpx | null {
                 const lat = parseFloat(pt.lat);
                 const lon = parseFloat(pt.lon);
                 const time = new Date(pt.time);
+                const ele = pt.ele != null ? parseFloat(String(pt.ele)) : null;
                 if (isNaN(lat) || isNaN(lon) || isNaN(time.getTime())) return null;
-                return { lat, lon, time };
+                return { lat, lon, ele: ele !== null && !isNaN(ele) ? ele : null, time };
             })
             .filter((pt): pt is TrkPoint => pt !== null);
 
@@ -377,17 +381,27 @@ function buildRouteData(gpx: ParsedGpx): RouteData {
         .filter((_, i) => i % 10 === 0)
         .map(pt => [pt.lat, pt.lon]);
 
-    // Compute km splits from cumulative distance and per-point timestamps
-    // Only meaningful when timestamps vary across points
     const kmSplits: number[] = [];
+    const kmElevationGain: number[] = [];
+    const kmElevationLoss: number[] = [];
+
     let cumulativeDist = 0;
     let kmBoundary = 1;
     let kmStartTime = points[0].time;
     let prevPt = points[0];
+    let kmElevGain = 0;
+    let kmElevLoss = 0;
 
     for (let i = 1; i < points.length; i++) {
         const pt = points[i];
         cumulativeDist += haversine(prevPt.lat, prevPt.lon, pt.lat, pt.lon);
+
+        // Accumulate elevation change within this km
+        if (pt.ele != null && prevPt.ele != null) {
+            const delta = pt.ele - prevPt.ele;
+            if (delta > 0) kmElevGain += delta;
+            else kmElevLoss += Math.abs(delta);
+        }
 
         if (cumulativeDist >= kmBoundary) {
             const elapsedMs = pt.time.getTime() - kmStartTime.getTime();
@@ -395,9 +409,13 @@ function buildRouteData(gpx: ParsedGpx): RouteData {
             // Skip splits with zero time (identical timestamps) or > 12 min/km (GPS pause)
             if (elapsedMin > 0 && elapsedMin <= 12) {
                 kmSplits.push(Math.round(elapsedMin * 60));
+                kmElevationGain.push(Math.round(kmElevGain));
+                kmElevationLoss.push(Math.round(kmElevLoss));
             }
             kmStartTime = pt.time;
             kmBoundary++;
+            kmElevGain = 0;
+            kmElevLoss = 0;
         }
 
         prevPt = pt;
@@ -408,6 +426,8 @@ function buildRouteData(gpx: ParsedGpx): RouteData {
         startLat,
         startLon,
         kmSplits,
+        kmElevationGain,
+        kmElevationLoss,
         routePolyline,
     };
 }
