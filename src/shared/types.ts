@@ -29,7 +29,3 @@ export interface McpStatus {
   port: number | null
 }
 
-export interface DetectEditorsResult {
-  name: string
-  path: string
-}

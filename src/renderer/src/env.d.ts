@@ -16,6 +16,8 @@ interface Window {
     stopMcpServer: () => Promise<void>
     getMcpStatus: () => Promise<{ running: boolean; port: number | null }>
     getAppVersion: () => Promise<string>
+    detectEditors: () => Promise<string | null>
+    openInEditor: (content: string) => Promise<boolean>
   }
 }
 

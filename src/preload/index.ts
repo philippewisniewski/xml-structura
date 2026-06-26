@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { FileResult, ParseResult, RecentFile, McpStatus, DetectEditorsResult } from '../shared/types'
+import type { FileResult, ParseResult, RecentFile, McpStatus } from '../shared/types'
 
 const electronAPI = {
   openFile: (): Promise<FileResult | null> => ipcRenderer.invoke('open-file'),

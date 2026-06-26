@@ -1,48 +1,32 @@
-# running-data-xml-parser
+# xml2json
 
-Parses an Apple Health `export.xml` and outputs a structured `runs.json` with biomechanics, recovery metrics, and GPX route data.
+Desktop app to parse XML/GPX files into JSON with a live preview editor.
 
-## Output format
+Built with Electron, React, TypeScript, CodeMirror 6, and Tailwind CSS.
 
-Each run record includes:
-- Core metrics: `distanceKm`, `paceSeconds` (integer seconds per km, e.g. `306` = 5:06/km), `durationSeconds`, `heartRateAvgBpm`, `cadenceStepsPerMin`, `groundContactTimeMs`, etc.
-- Recovery data: HRV, sleep, resting HR, VO2 max and more for the night before, run day, and day after
-- Route data: `startLat`, `startLon`, `kmSplits` (integer seconds per km), `routePolyline` (downsampled coordinates for map rendering)
-
-## Install
+## Dev
 
 ```bash
 npm install
+npm run dev
 ```
 
-## Run
+## Build
 
 ```bash
-npx tsx parse.ts export.xml
+npm run build
+npm run package
 ```
 
-Outputs `runs.json` in the current directory.
+## Features
 
-By default the parser looks for a `workout-routes/` folder in the project root containing GPX files exported from Apple Health. If found, each run is matched to its GPX file by timestamp and enriched with route data.
-
-To use a different GPX folder location:
-
-```bash
-npx tsx parse.ts export.xml --routes /path/to/workout-routes
-```
-
-If no GPX folder is found or a run has no matching GPX file, the `route` field will be `null` for that run.
-
-## Test with mock data
-
-```bash
-npx tsx parse.ts test/mock-export.xml
-```
-
-## Type check
-
-```bash
-npx tsc --noEmit
-```
-
-> Requires Node 18+.
+- Open XML/GPX files via file dialog or drag-and-drop
+- Fetch XML from a remote URL
+- Parse Apple Health XML and GPX files with route analysis
+- View parsed JSON as a tree or raw text
+- CodeMirror editors with syntax highlighting
+- Copy/download the JSON output
+- Open JSON in VS Code / Cursor / Zed
+- MCP server integration (auto-starts on port 4283)
+- Dark/light theme
+- Recent files sidebar

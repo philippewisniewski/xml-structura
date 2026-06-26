@@ -19,6 +19,8 @@ interface AppState {
   recentFiles: RecentFile[]
   mcpRunning: boolean
   isSidebarOpen: boolean
+  viewMode: 'tree' | 'raw'
+  editorName: string | null
 }
 
 interface AppContextType extends AppState {
@@ -29,9 +31,11 @@ interface AppContextType extends AppState {
   clearRecentFiles: () => Promise<void>
   toggleSidebar: () => void
   toggleTheme: () => void
+  setViewMode: (mode: 'tree' | 'raw') => void
   theme: 'light' | 'dark'
   copyJson: () => Promise<void>
   downloadJson: () => Promise<void>
+  handleOpenInEditor: () => Promise<void>
 }
 
 const AppContext = createContext<AppContextType | null>(null)
@@ -53,8 +57,10 @@ function App() {
   const [isParsing, setIsParsing] = useState(false)
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([])
   const [mcpRunning, setMcpRunning] = useState(false)
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
+  const [viewMode, setViewMode] = useState<'tree' | 'raw'>('tree')
+  const [editorName, setEditorName] = useState<string | null>(null)
 
   useEffect(() => {
     const stored = localStorage.getItem('theme')
@@ -66,6 +72,10 @@ function App() {
 
   useEffect(() => {
     window.api.getRecentFiles().then(setRecentFiles)
+  }, [])
+
+  useEffect(() => {
+    window.api.detectEditors().then(setEditorName)
   }, [])
 
   useEffect(() => {
@@ -178,6 +188,12 @@ function App() {
     setParseError(null)
   }, [])
 
+  const handleOpenInEditor = useCallback(async () => {
+    if (!parsedData) return
+    const content = JSON.stringify(parsedData, null, 2)
+    await window.api.openInEditor(content)
+  }, [parsedData])
+
   const clearRecentFilesFn = useCallback(async () => {
     await window.api.clearRecentFiles()
     setRecentFiles([])
@@ -212,6 +228,8 @@ function App() {
     recentFiles,
     mcpRunning,
     isSidebarOpen,
+    viewMode,
+    editorName,
     loadFile,
     loadUrl,
     openFileDialog,
@@ -219,9 +237,11 @@ function App() {
     clearRecentFiles: clearRecentFilesFn,
     toggleSidebar,
     toggleTheme,
+    setViewMode,
     theme,
     copyJson,
-    downloadJson
+    downloadJson,
+    handleOpenInEditor
   }
 
   return (
@@ -230,17 +250,96 @@ function App() {
         <Toolbar />
         <div className='flex flex-1 overflow-hidden'>
           {isSidebarOpen && <Sidebar />}
-          <ResizablePanelGroup direction='horizontal' className='flex-1'>
-            <ResizablePanel defaultSize={50} minSize={25}>
-              <XmlPreview />
-            </ResizablePanel>
-            <ResizableHandle />
-            <ResizablePanel defaultSize={50} minSize={25}>
-              <JsonPanel />
-            </ResizablePanel>
-          </ResizablePanelGroup>
+          <div className='flex flex-1 flex-col overflow-hidden'>
+
+          {/* Info + actions row */}
+          <div className='flex h-7 items-center justify-between border-b border-border px-3'>
+            <div className='flex items-center gap-2 text-[11px] text-muted-foreground'>
+              {fileName && <span>Loaded {fileName}</span>}
+              {fileSize !== null && (
+                <span>
+                  {fileSize >= 1024 * 1024
+                    ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB`
+                    : fileSize >= 1024
+                      ? `${(fileSize / 1024).toFixed(1)} KB`
+                      : `${fileSize} B`}
+                </span>
+              )}
+              {fileLines !== null && <span>{fileLines.toLocaleString()} lines</span>}
+              {parsedData !== null && <span className='text-green-500'>✓ Parsed</span>}
+              {parseError !== null && <span className='text-destructive'>✗ Error</span>}
+            </div>
+            <div className='flex items-center gap-1'>
+              <button
+                onClick={() => setViewMode('tree')}
+                className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                  viewMode === 'tree'
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                }`}
+              >
+                Tree
+              </button>
+              <button
+                onClick={() => setViewMode('raw')}
+                className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                  viewMode === 'raw'
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                }`}
+              >
+                Raw
+              </button>
+              <button
+                onClick={copyJson}
+                className='flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors'
+                title='Copy JSON'
+              >
+                <svg width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'>
+                  <rect x='9' y='9' width='13' height='13' rx='2' ry='2' />
+                  <path d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1' />
+                </svg>
+              </button>
+              <button
+                onClick={downloadJson}
+                className='flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors'
+                title='Download JSON'
+              >
+                <svg width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'>
+                  <path d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' />
+                  <polyline points='7 10 12 15 17 10' />
+                  <line x1='12' y1='15' x2='12' y2='3' />
+                </svg>
+              </button>
+              <button
+                onClick={handleOpenInEditor}
+                disabled={!editorName || !parsedData}
+                className='rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
+                title={
+                  editorName
+                    ? `Open in ${editorName}`
+                    : 'No editor detected (install VS Code, Cursor, or Zed)'
+                }
+              >
+                {editorName ? `Open in ${editorName}` : 'Open in Editor'}
+              </button>
+            </div>
+          </div>
+
+          <div className='flex flex-1 overflow-hidden'>
+            <ResizablePanelGroup direction='horizontal' className='flex-1'>
+              <ResizablePanel defaultSize={50} minSize={25}>
+                <XmlPreview />
+              </ResizablePanel>
+              <ResizableHandle />
+              <ResizablePanel defaultSize={50} minSize={25}>
+                <JsonPanel />
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          </div>
+          <StatusBar />
+          </div>
         </div>
-        <StatusBar />
       </div>
     </AppContext.Provider>
   )

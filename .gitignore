@@ -5,6 +5,8 @@ dist/
 !package.json
 !package-lock.json
 !tsconfig.json
+!tsconfig.node.json
+!tsconfig.web.json
 export.xml
 workout-routes/
 !test/*.xml
