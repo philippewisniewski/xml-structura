@@ -29,6 +29,7 @@ interface AppContextType extends AppState {
   openFileDialog: () => Promise<void>
   setParserMode: (mode: ParserMode) => void
   clearFile: () => void
+  clearRecentFiles: () => Promise<void>
   toggleSidebar: () => void
   toggleTheme: () => void
   theme: 'light' | 'dark'
@@ -181,6 +182,11 @@ function App() {
     setParseError(null)
   }, [])
 
+  const clearRecentFilesFn = useCallback(async () => {
+    await window.api.clearRecentFiles()
+    setRecentFiles([])
+  }, [])
+
   const toggleSidebar = useCallback(() => {
     setIsSidebarOpen(prev => !prev)
   }, [])
@@ -216,6 +222,7 @@ function App() {
     openFileDialog,
     setParserMode,
     clearFile,
+    clearRecentFiles: clearRecentFilesFn,
     toggleSidebar,
     toggleTheme,
     theme,

@@ -1,7 +1,7 @@
 import { useApp } from '../App'
 
 export function Sidebar() {
-  const { recentFiles, loadFile, loadUrl, clearFile } = useApp()
+  const { recentFiles, loadFile, loadUrl, clearRecentFiles } = useApp()
 
   const handleClick = async (file: { name: string; path: string }) => {
     if (file.path.startsWith('http://') || file.path.startsWith('https://')) {
@@ -14,17 +14,13 @@ export function Sidebar() {
     }
   }
 
-  const handleClear = async () => {
-    await window.api.clearRecentFiles()
-  }
-
   return (
     <aside className='flex w-56 flex-col border-r border-border bg-muted/30'>
       <div className='flex items-center justify-between px-3 py-2'>
         <span className='text-xs font-medium text-muted-foreground uppercase tracking-wider'>Recent</span>
         {recentFiles.length > 0 && (
           <button
-            onClick={handleClear}
+            onClick={clearRecentFiles}
             className='text-xs text-muted-foreground hover:text-destructive transition-colors'
           >
             Clear
