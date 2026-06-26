@@ -1,5 +1,11 @@
 node_modules/
+out/
+dist/
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
 export.xml
-runs.json
 workout-routes/
-!test/mock-export.xml
+!test/*.xml
+.DS_Store
