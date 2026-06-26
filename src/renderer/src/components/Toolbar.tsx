@@ -61,8 +61,9 @@ export function Toolbar() {
         </svg>
         New
       </button>
-      <div className='flex items-center gap-1 ml-2 max-w-[280px] flex-1'>
+      <div {...noDrag} className='flex items-center gap-1 ml-2 max-w-[280px] flex-1'>
         <input
+          {...noDrag}
           type='url'
           value={url}
           onChange={e => setUrl(e.target.value)}
