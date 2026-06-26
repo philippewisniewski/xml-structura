@@ -1,5 +1,8 @@
-import { ipcMain, dialog } from 'electron'
-import { readFileSync, existsSync } from 'fs'
+import { ipcMain, dialog, shell } from 'electron'
+import { readFileSync, existsSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { execFileSync, spawn } from 'child_process'
 import { XMLParser } from 'fast-xml-parser'
 import { app } from 'electron'
 import type { FileResult, ParseResult, RecentFile, McpStatus } from '../shared/types'
@@ -209,6 +212,38 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('get-app-version', () => {
     return app.getVersion()
+  })
+
+  ipcMain.handle('detect-editors', (): string | null => {
+    const editors = [
+      { name: 'VS Code', bin: 'code' },
+      { name: 'Cursor', bin: 'cursor' },
+      { name: 'Zed', bin: 'zed' },
+    ]
+    for (const editor of editors) {
+      try {
+        execFileSync('which', [editor.bin], { encoding: 'utf-8' })
+        return editor.name
+      } catch {
+        continue
+      }
+    }
+    return null
+  })
+
+  ipcMain.handle('open-in-editor', async (_, content: string): Promise<boolean> => {
+    for (const bin of ['code', 'cursor', 'zed']) {
+      try {
+        execFileSync('which', [bin], { encoding: 'utf-8' })
+        const tmpFile = join(tmpdir(), `xml2json-${Date.now()}.json`)
+        writeFileSync(tmpFile, content, 'utf-8')
+        spawn(bin, [tmpFile], { detached: true, stdio: 'ignore' }).unref()
+        return true
+      } catch {
+        continue
+      }
+    }
+    return false
   })
 
   ipcMain.handle('start-mcp-server', async (_event, port: number, _data: unknown): Promise<boolean> => {

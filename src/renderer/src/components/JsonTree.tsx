@@ -11,16 +11,16 @@ interface TreeNodeProps {
 
 function ValueDisplay({ value }: { value: unknown }) {
   if (value === null || value === undefined) {
-    return <span className='text-gray-400 dark:text-gray-500'>null</span>
+    return <span className='text-purple-500 dark:text-purple-400'>null</span>
   }
   if (typeof value === 'string') {
-    return <span className='text-green-600 dark:text-green-400'>"{value}"</span>
+    return <span className='text-emerald-600 dark:text-emerald-400'>"{value}"</span>
   }
   if (typeof value === 'number') {
-    return <span className='text-blue-600 dark:text-blue-400'>{value}</span>
+    return <span className='text-amber-600 dark:text-amber-400'>{value}</span>
   }
   if (typeof value === 'boolean') {
-    return <span className='text-orange-500 dark:text-orange-400'>{String(value)}</span>
+    return <span className='text-cyan-600 dark:text-cyan-400'>{String(value)}</span>
   }
   return <span>{String(value)}</span>
 }
@@ -73,17 +73,17 @@ function TreeNode({ keyName, value, path, depth, defaultExpanded }: TreeNodeProp
   return (
     <div>
       <div
-        className={`group flex items-start gap-0.5 rounded-sm px-1 py-[1px] hover:bg-accent/50 cursor-pointer ${
+        className={`group flex items-start gap-0 rounded-sm px-1 py-[1px] hover:bg-accent/50 cursor-pointer ${
           depth === 0 ? 'font-semibold' : ''
         }`}
         onClick={toggle}
       >
         {isExpandable && (
-          <span className='w-4 shrink-0 text-center text-[10px] text-muted-foreground'>
+          <span className='w-3.5 shrink-0 text-center text-[10px] text-muted-foreground leading-4'>
             {expanded ? '▼' : '▶'}
           </span>
         )}
-        {!isExpandable && <span className='w-4 shrink-0' />}
+        {!isExpandable && <span className='w-3.5 shrink-0' />}
         <span className='text-xs text-foreground'>{keyName}</span>
         {isExpandable && typeInfo && (
           <span className='ml-1 text-[10px] text-muted-foreground'>{typeInfo}</span>
@@ -133,81 +133,16 @@ function TreeNode({ keyName, value, path, depth, defaultExpanded }: TreeNodeProp
 }
 
 export function JsonTree() {
-  const { parsedData, isParsing, parseError, copyJson, downloadJson } = useApp()
-
-  if (isParsing) {
-    return (
-      <div className='flex h-full items-center justify-center'>
-        <div className='flex items-center gap-2'>
-          <span className='h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent' />
-          <span className='text-sm text-muted-foreground'>Parsing...</span>
-        </div>
-      </div>
-    )
-  }
-
-  if (parseError) {
-    return (
-      <div className='flex h-full items-center justify-center p-6'>
-        <div className='text-center'>
-          <p className='text-sm font-medium text-destructive'>Parse Error</p>
-          <p className='mt-1 text-xs text-muted-foreground'>{parseError}</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!parsedData) {
-    return (
-      <div className='flex h-full items-center justify-center p-6'>
-        <div className='text-center'>
-          <svg
-            width='40'
-            height='40'
-            viewBox='0 0 24 24'
-            fill='none'
-            stroke='currentColor'
-            strokeWidth='1'
-            className='mx-auto mb-3 text-muted-foreground/40'
-          >
-            <polyline points='4 17 10 11 4 5' />
-            <line x1='12' y1='19' x2='20' y2='19' />
-          </svg>
-          <p className='text-sm text-muted-foreground'>JSON Output</p>
-          <p className='mt-1 text-xs text-muted-foreground/60'>Parsed data will appear here</p>
-        </div>
-      </div>
-    )
-  }
+  const { parsedData } = useApp()
+  if (!parsedData) return null
 
   return (
-    <div className='flex h-full flex-col'>
-      <div className='flex items-center justify-between border-b border-border px-3 py-1.5'>
-        <span className='text-xs font-medium text-foreground'>JSON Tree</span>
-        <div className='flex gap-1'>
-          <button
-            onClick={copyJson}
-            className='rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors'
-          >
-            Copy
-          </button>
-          <button
-            onClick={downloadJson}
-            className='rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors'
-          >
-            Download
-          </button>
-        </div>
-      </div>
-      <div className='flex-1 overflow-auto p-3'>
-        <TreeNode
-          keyName='root'
-          value={parsedData}
-          path='$'
-          depth={0}
-          defaultExpanded={true}
-        />
-      </div>
-    </div>
+    <TreeNode
+      keyName='root'
+      value={parsedData}
+      path='$'
+      depth={0}
+      defaultExpanded={true}
+    />
   )
 }

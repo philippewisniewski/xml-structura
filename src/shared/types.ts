@@ -28,3 +28,8 @@ export interface McpStatus {
   running: boolean
   port: number | null
 }
+
+export interface DetectEditorsResult {
+  name: string
+  path: string
+}

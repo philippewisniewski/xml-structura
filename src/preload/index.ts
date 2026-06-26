@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { FileResult, ParseResult, RecentFile, McpStatus } from '../shared/types'
+import type { FileResult, ParseResult, RecentFile, McpStatus, DetectEditorsResult } from '../shared/types'
 
 const electronAPI = {
   openFile: (): Promise<FileResult | null> => ipcRenderer.invoke('open-file'),
@@ -49,7 +49,11 @@ const electronAPI = {
 
   getMcpStatus: (): Promise<McpStatus> => ipcRenderer.invoke('get-mcp-status'),
 
-  getAppVersion: (): Promise<string> => ipcRenderer.invoke('get-app-version')
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke('get-app-version'),
+
+  detectEditors: (): Promise<string | null> => ipcRenderer.invoke('detect-editors'),
+
+  openInEditor: (content: string): Promise<boolean> => ipcRenderer.invoke('open-in-editor', content)
 }
 
 contextBridge.exposeInMainWorld('api', electronAPI)

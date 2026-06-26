@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react'
 import { PanelResizeHandle as ResizableHandle, Panel as ResizablePanel, PanelGroup as ResizablePanelGroup } from 'react-resizable-panels'
 import { Sidebar } from './components/Sidebar'
-import { InputPanel } from './components/InputPanel'
 import { XmlPreview } from './components/XmlPreview'
-import { JsonTree } from './components/JsonTree'
+import { JsonPanel } from './components/JsonPanel'
 import { StatusBar } from './components/StatusBar'
 import { Toolbar } from './components/Toolbar'
-import type { RecentFile, ParserMode } from '@shared/types'
+import type { RecentFile } from '@shared/types'
 
 interface AppState {
   fileContent: string | null
@@ -17,7 +16,6 @@ interface AppState {
   parsedData: unknown | null
   parseError: string | null
   isParsing: boolean
-  parserMode: ParserMode
   recentFiles: RecentFile[]
   mcpRunning: boolean
   isSidebarOpen: boolean
@@ -27,7 +25,6 @@ interface AppContextType extends AppState {
   loadFile: (content: string, name: string, path?: string) => Promise<void>
   loadUrl: (url: string) => Promise<void>
   openFileDialog: () => Promise<void>
-  setParserMode: (mode: ParserMode) => void
   clearFile: () => void
   clearRecentFiles: () => Promise<void>
   toggleSidebar: () => void
@@ -54,7 +51,6 @@ function App() {
   const [parsedData, setParsedData] = useState<unknown | null>(null)
   const [parseError, setParseError] = useState<string | null>(null)
   const [isParsing, setIsParsing] = useState(false)
-  const [parserMode, setParserMode] = useState<ParserMode>('xml')
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([])
   const [mcpRunning, setMcpRunning] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
@@ -101,7 +97,7 @@ function App() {
       setParseError(null)
       setParsedData(null)
 
-      const isGpx = name.toLowerCase().endsWith('.gpx') || parserMode === 'gpx'
+      const isGpx = name.toLowerCase().endsWith('.gpx')
 
       try {
         const result = isGpx
@@ -119,7 +115,7 @@ function App() {
         setIsParsing(false)
       }
     },
-    [parserMode]
+    []
   )
 
   async function setNameAndSize(content: string, name: string, path?: string) {
@@ -213,14 +209,12 @@ function App() {
     parsedData,
     parseError,
     isParsing,
-    parserMode,
     recentFiles,
     mcpRunning,
     isSidebarOpen,
     loadFile,
     loadUrl,
     openFileDialog,
-    setParserMode,
     clearFile,
     clearRecentFiles: clearRecentFilesFn,
     toggleSidebar,
@@ -237,16 +231,12 @@ function App() {
         <div className='flex flex-1 overflow-hidden'>
           {isSidebarOpen && <Sidebar />}
           <ResizablePanelGroup direction='horizontal' className='flex-1'>
-            <ResizablePanel defaultSize={18} minSize={12} maxSize={30}>
-              <InputPanel />
-            </ResizablePanel>
-            <ResizableHandle />
-            <ResizablePanel defaultSize={41} minSize={25}>
+            <ResizablePanel defaultSize={50} minSize={25}>
               <XmlPreview />
             </ResizablePanel>
             <ResizableHandle />
-            <ResizablePanel defaultSize={41} minSize={25}>
-              <JsonTree />
+            <ResizablePanel defaultSize={50} minSize={25}>
+              <JsonPanel />
             </ResizablePanel>
           </ResizablePanelGroup>
         </div>

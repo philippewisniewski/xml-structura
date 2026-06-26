@@ -1,12 +1,13 @@
 import { useApp } from '../App'
 
 export function StatusBar() {
-  const { fileSize, fileLines, parsedData, parseError, copyJson, downloadJson, mcpRunning } =
+  const { fileName, fileSize, fileLines, parsedData, parseError, mcpRunning } =
     useApp()
 
   return (
     <footer className='flex h-7 items-center justify-between border-t border-border bg-muted/30 px-3'>
       <div className='flex items-center gap-3 text-[11px] text-muted-foreground'>
+        {fileName && <span>Loaded {fileName}</span>}
         {fileSize !== null && (
           <span>
             {fileSize >= 1024 * 1024
@@ -26,26 +27,10 @@ export function StatusBar() {
       </div>
       <div className='flex items-center gap-2'>
         {mcpRunning && (
-          <span className='flex items-center gap-1 text-[11px] text-green-500'>
+          <span className='flex items-center gap-1.5 text-[11px] text-green-500'>
             <span className='h-1.5 w-1.5 rounded-full bg-green-500' />
-            MCP :4283
+            MCP
           </span>
-        )}
-        {parsedData !== null && (
-          <>
-            <button
-              onClick={copyJson}
-              className='rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors'
-            >
-              Copy JSON
-            </button>
-            <button
-              onClick={downloadJson}
-              className='rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors'
-            >
-              Download
-            </button>
-          </>
         )}
       </div>
     </footer>
