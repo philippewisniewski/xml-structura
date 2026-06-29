@@ -11,6 +11,7 @@
     "package": "electron-builder",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
+    "clean": "rm -rf out node_modules/.vite",
     "typecheck": "npm run typecheck:node && npm run typecheck:web"
   },
   "dependencies": {
@@ -31,6 +32,30 @@
     "tailwind-merge": "^3.2.0",
     "xml-formatter": "^3.7.0",
     "zod": "^4.4.3"
+  },
+  "build": {
+    "appId": "com.xml2json.app",
+    "productName": "xml2json",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "mac": {
+      "icon": "resources/icon.png",
+      "category": "public.app-category.developer-tools",
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "icon": "resources/icon.png",
+      "target": ["nsis", "zip"]
+    },
+    "linux": {
+      "icon": "resources/icon.png",
+      "target": ["AppImage", "deb"],
+      "category": "Development"
+    }
   },
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",

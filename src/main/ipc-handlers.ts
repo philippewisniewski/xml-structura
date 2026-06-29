@@ -1,12 +1,20 @@
-import { ipcMain, dialog, shell } from 'electron'
-import { readFileSync, existsSync, writeFileSync } from 'fs'
+import { ipcMain, dialog, shell, app } from 'electron'
+import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { execFileSync, spawn } from 'child_process'
 import { XMLParser } from 'fast-xml-parser'
-import { app } from 'electron'
 import type { FileResult, ParseResult, RecentFile, McpStatus } from '../shared/types'
 import { startMcpServer as mcpStart, stopMcpServer as mcpStop, getMcpStatus as mcpStatus } from './mcp-server'
+
+const tempFiles = new Set<string>()
+
+app.on('will-quit', () => {
+  for (const f of tempFiles) {
+    try { unlinkSync(f) } catch { }
+  }
+  tempFiles.clear()
+})
 
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
@@ -236,6 +244,7 @@ export function registerIpcHandlers(): void {
         execFileSync('which', [bin], { encoding: 'utf-8' })
         const tmpFile = join(tmpdir(), `xml2json-${Date.now()}.json`)
         writeFileSync(tmpFile, content, 'utf-8')
+        tempFiles.add(tmpFile)
         spawn(bin, [tmpFile], { detached: true, stdio: 'ignore' }).unref()
         return true
       } catch {

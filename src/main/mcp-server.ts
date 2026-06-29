@@ -172,10 +172,19 @@ export async function startMcpServer(port: number, data: unknown): Promise<{ por
 
   const httpServer = createServer(async (req, res) => {
     try {
-      await transport.handleRequest(req, res)
+      let parsedBody: unknown = undefined
+      if (req.method === 'POST') {
+        const chunks: Buffer[] = []
+        for await (const chunk of req) chunks.push(chunk)
+        const body = Buffer.concat(chunks).toString('utf-8')
+        if (body) parsedBody = JSON.parse(body)
+      }
+      await transport.handleRequest(req, res, parsedBody)
     } catch (err) {
-      res.writeHead(500)
-      res.end(JSON.stringify({ error: String(err) }))
+      if (!res.headersSent) {
+        res.writeHead(500)
+        res.end(JSON.stringify({ error: String(err) }))
+      }
     }
   })
 

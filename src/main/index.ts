@@ -14,7 +14,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     title: 'xml2json',
     titleBarStyle: 'hidden',
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false
