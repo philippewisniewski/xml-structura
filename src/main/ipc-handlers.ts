@@ -1,4 +1,4 @@
-import { ipcMain, dialog, shell, app } from 'electron'
+import { ipcMain, dialog, app } from 'electron'
 import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -30,6 +30,17 @@ const gpxParser = new XMLParser({
   processEntities: false
 })
 
+function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
 function parseXmlGeneric(content: string): ParseResult {
   try {
     const data = xmlParser.parse(content)
@@ -57,6 +68,8 @@ function parseGpxGeneric(content: string): ParseResult {
       points.push({ lat, lon, ele: ele !== null && !isNaN(ele) ? ele : null, time })
     }
 
+    if (points.length === 0) return { success: true, data: { raw, parsed: null } }
+
     const routePolyline: [number, number][] = points
       .filter((_, i) => i % 10 === 0)
       .map(pt => [pt.lat, pt.lon])
@@ -71,17 +84,6 @@ function parseGpxGeneric(content: string): ParseResult {
     let prevPt = points[0]
     let kmElevGain = 0
     let kmElevLoss = 0
-
-    function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
-      const R = 6371
-      const toRad = (deg: number) => (deg * Math.PI) / 180
-      const dLat = toRad(lat2 - lat1)
-      const dLon = toRad(lon2 - lon1)
-      const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-    }
 
     for (let i = 1; i < points.length; i++) {
       const pt = points[i]
@@ -209,7 +211,6 @@ export function registerIpcHandlers(): void {
     })
     if (result.canceled || !result.filePath) return false
     try {
-      const { writeFileSync } = await import('fs')
       writeFileSync(result.filePath, content, 'utf-8')
       return true
     } catch {

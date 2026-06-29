@@ -171,10 +171,12 @@ function App() {
           const files = await window.api.getRecentFiles()
           setRecentFiles(files)
         } else {
-          setParseError('Failed to fetch URL')
+          throw new Error('Failed to fetch URL')
         }
       } catch (err) {
-        setParseError((err as Error).message)
+        const msg = (err as Error).message
+        setParseError(msg)
+        throw new Error(msg)
       } finally {
         setIsParsing(false)
       }
