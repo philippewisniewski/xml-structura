@@ -18,6 +18,7 @@ interface AppState {
   isParsing: boolean
   recentFiles: RecentFile[]
   mcpRunning: boolean
+  mcpPort: number | null
   isSidebarOpen: boolean
   viewMode: 'tree' | 'raw'
   editorName: string | null
@@ -57,6 +58,7 @@ function App() {
   const [isParsing, setIsParsing] = useState(false)
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([])
   const [mcpRunning, setMcpRunning] = useState(false)
+  const [mcpPort, setMcpPort] = useState<number | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [viewMode, setViewMode] = useState<'tree' | 'raw'>('tree')
@@ -80,13 +82,22 @@ function App() {
 
   useEffect(() => {
     if (parsedData && !parseError) {
-      window.api.startMcpServer(4283, parsedData).then(setMcpRunning)
+      window.api.startMcpServer(4283, parsedData).then(result => {
+        setMcpRunning(true)
+        setMcpPort(result.port)
+      })
     } else {
-      window.api.stopMcpServer().then(() => setMcpRunning(false))
+      window.api.stopMcpServer().then(() => {
+        setMcpRunning(false)
+        setMcpPort(null)
+      })
     }
 
     return () => {
-      window.api.stopMcpServer()
+      window.api.stopMcpServer().then(() => {
+        setMcpRunning(false)
+        setMcpPort(null)
+      })
     }
   }, [parsedData, parseError])
 
@@ -227,6 +238,7 @@ function App() {
     isParsing,
     recentFiles,
     mcpRunning,
+    mcpPort,
     isSidebarOpen,
     viewMode,
     editorName,

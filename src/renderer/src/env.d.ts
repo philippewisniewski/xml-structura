@@ -12,7 +12,7 @@ interface Window {
     getRecentFiles: () => Promise<RecentFile[]>
     addRecentFile: (file: RecentFile) => Promise<void>
     clearRecentFiles: () => Promise<void>
-    startMcpServer: (port: number, data: unknown) => Promise<boolean>
+    startMcpServer: (port: number, data: unknown) => Promise<{ port: number }>
     stopMcpServer: () => Promise<void>
     getMcpStatus: () => Promise<{ running: boolean; port: number | null }>
     getAppVersion: () => Promise<string>

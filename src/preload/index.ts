@@ -42,7 +42,7 @@ const electronAPI = {
     return Promise.resolve()
   },
 
-  startMcpServer: (port: number, data: unknown): Promise<boolean> =>
+  startMcpServer: (port: number, data: unknown): Promise<{ port: number }> =>
     ipcRenderer.invoke('start-mcp-server', port, data),
 
   stopMcpServer: (): Promise<void> => ipcRenderer.invoke('stop-mcp-server'),

@@ -6,8 +6,7 @@ import { execFileSync, spawn } from 'child_process'
 import { XMLParser } from 'fast-xml-parser'
 import { app } from 'electron'
 import type { FileResult, ParseResult, RecentFile, McpStatus } from '../shared/types'
-
-let mcpServer: { port: number; close: () => void } | null = null
+import { startMcpServer as mcpStart, stopMcpServer as mcpStop, getMcpStatus as mcpStatus } from './mcp-server'
 
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
@@ -246,48 +245,22 @@ export function registerIpcHandlers(): void {
     return false
   })
 
-  ipcMain.handle('start-mcp-server', async (_event, port: number, _data: unknown): Promise<boolean> => {
+  ipcMain.handle('start-mcp-server', async (_event, port: number, data: unknown): Promise<{ port: number }> => {
     try {
-      if (mcpServer) {
-        mcpServer.close()
-      }
-
-      const http = await import('http')
-      const httpServer = http.createServer()
-
-      httpServer.on('request', (_req, res) => {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ status: 'ok', message: 'MCP server placeholder' }))
-      })
-
-      httpServer.listen(port, '127.0.0.1')
-
-      mcpServer = {
-        port,
-        close: () => {
-          httpServer.close()
-        }
-      }
-
-      return true
+      const result = await mcpStart(port, data)
+      return result
     } catch (err) {
       console.error('Failed to start MCP server:', err)
-      return false
+      throw err
     }
   })
 
   ipcMain.handle('stop-mcp-server', async () => {
-    if (mcpServer) {
-      mcpServer.close()
-      mcpServer = null
-    }
+    await mcpStop()
   })
 
   ipcMain.handle('get-mcp-status', async (): Promise<McpStatus> => {
-    if (mcpServer) {
-      return { running: true, port: mcpServer.port }
-    }
-    return { running: false, port: null }
+    return mcpStatus()
   })
 }
 
