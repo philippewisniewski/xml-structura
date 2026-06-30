@@ -1,13 +1,28 @@
-# running-data-xml-parser
+# xml2json
 
-Parses an Apple Health `export.xml` and outputs a structured `runs.json` with biomechanics, recovery metrics, and GPX route data.
+Desktop app to parse XML/GPX files into JSON with a live split-pane editor and AI-agent integration via the Model Context Protocol (MCP).
 
-## Output format
+Built with **Electron**, **React**, **TypeScript**, **CodeMirror 6**, and **Tailwind CSS**.
 
-Each run record includes:
-- Core metrics: `distanceKm`, `paceSeconds` (integer seconds per km, e.g. `306` = 5:06/km), `durationSeconds`, `heartRateAvgBpm`, `cadenceStepsPerMin`, `groundContactTimeMs`, etc.
-- Recovery data: HRV, sleep, resting HR, VO2 max and more for the night before, run day, and day after
-- Route data: `startLat`, `startLon`, `kmSplits` (integer seconds per km), `routePolyline` (downsampled coordinates for map rendering)
+> ![_Screenshot_](https://github.com/user-attachments/assets/00000000-0000-0000-0000-000000000000)
+> *Replace the URL above with a screenshot of the app in light/dark mode*
+
+---
+
+## Features
+
+- **Open files** — File dialog, drag-and-drop, or fetch from a remote URL
+- **Parse XML & GPX** — Apple Health XML and GPX route files with km splits, elevation gain/loss, and polyline
+- **Live preview** — Side-by-side CodeMirror editors with syntax highlighting
+- **Tree view** — Browse parsed JSON structure with expand/collapse
+- **Raw JSON** — Full JSON editor with formatting
+- **Copy / Download** — One-click copy to clipboard or save as `.json`
+- **Open in Editor** — Launch JSON in VS Code, Cursor, or Zed
+- **MCP Server** — Exposes parsed data to AI agents (Claude Desktop, Cursor, etc.)
+- **Dark / Light theme** — Toggle with one click
+- **Recent files** — Sidebar with recently opened files
+
+---
 
 ## Install
 
@@ -15,34 +30,77 @@ Each run record includes:
 npm install
 ```
 
-## Run
+## Dev
 
 ```bash
-npx tsx parse.ts export.xml
+npm run dev
 ```
 
-Outputs `runs.json` in the current directory.
+Launches an Electron window with hot-reload.
 
-By default the parser looks for a `workout-routes/` folder in the project root containing GPX files exported from Apple Health. If found, each run is matched to its GPX file by timestamp and enriched with route data.
-
-To use a different GPX folder location:
+## Build
 
 ```bash
-npx tsx parse.ts export.xml --routes /path/to/workout-routes
+npm run build        # build for production
+npm run package      # package into .dmg (macOS), .exe (Windows), .AppImage (Linux)
 ```
 
-If no GPX folder is found or a run has no matching GPX file, the `route` field will be `null` for that run.
+Outputs go to `dist/`.
 
-## Test with mock data
+## Clean
 
 ```bash
-npx tsx parse.ts test/mock-export.xml
+npm run clean        # remove build artifacts
 ```
 
-## Type check
+---
 
-```bash
-npx tsc --noEmit
+## MCP Integration
+
+The app automatically starts an MCP server on `http://127.0.0.1:4283` whenever a file is parsed. It falls back through ports 4284–4293 if the default port is in use.
+
+### Resources
+
+| URI | Description |
+|---|---|
+| `xml2json://current/raw` | Full parsed JSON |
+| `xml2json://current/stats` | Element counts and statistics |
+
+### Tools
+
+| Tool | Arguments | Description |
+|---|---|---|
+| `search` | `query` (string) | Find values matching text (case-insensitive) |
+| `query` | `path` (string) | JSONPath-like expression, e.g. `$.Workout[0]` |
+| `schema` | — | Infer the structure of the parsed data |
+
+### Connect from Claude Desktop
+
+Add to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "xml2json": {
+      "url": "http://127.0.0.1:4283"
+    }
+  }
+}
 ```
 
-> Requires Node 18+.
+The MCP status indicator (green dot) in the bottom-right shows whether the server is running.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Desktop shell | Electron 35 |
+| UI framework | React 19 |
+| Build tool | electron-vite + Vite 6 |
+| Text editors | CodeMirror 6 |
+| XML parsing | fast-xml-parser |
+| Styling | Tailwind CSS 3 |
+| MCP SDK | @modelcontextprotocol/sdk |
+| Packaging | electron-builder |
