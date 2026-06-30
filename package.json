@@ -1,5 +1,5 @@
 {
-  "name": "structura",
+  "name": "xml-structura",
   "version": "1.0.0",
   "description": "Desktop app to parse XML/GPX into structured JSON with tree browsing, streaming, and MCP agent integration",
   "main": "./out/main/index.js",
