@@ -4,6 +4,8 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpcHandlers } from './ipc-handlers'
 
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=8192')
+
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1280,

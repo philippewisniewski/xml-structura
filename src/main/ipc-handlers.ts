@@ -1,11 +1,12 @@
-import { ipcMain, dialog, app } from 'electron'
-import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'fs'
+import { ipcMain, dialog, app, BrowserWindow } from 'electron'
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { execFileSync, spawn } from 'child_process'
-import { XMLParser } from 'fast-xml-parser'
-import type { FileResult, ParseResult, RecentFile, McpStatus } from '../shared/types'
+import { DataStore } from './data-store'
+import { parseStream } from './streaming-parser'
 import { startMcpServer as mcpStart, stopMcpServer as mcpStop, getMcpStatus as mcpStatus } from './mcp-server'
+import type { FileResult, McpStatus, ParseProgressData } from '../shared/types'
 
 const tempFiles = new Set<string>()
 
@@ -16,125 +17,50 @@ app.on('will-quit', () => {
   tempFiles.clear()
 })
 
-const xmlParser = new XMLParser({
-  ignoreAttributes: false,
-  attributeNamePrefix: '',
-  isArray: (name: string) => ['Workout', 'WorkoutStatistics', 'MetadataEntry', 'Record', 'trkpt'].includes(name),
-  processEntities: false
-})
-
-const gpxParser = new XMLParser({
-  ignoreAttributes: false,
-  attributeNamePrefix: '',
-  isArray: (name: string) => name === 'trkpt',
-  processEntities: false
-})
-
-function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371
-  const toRad = (deg: number) => (deg * Math.PI) / 180
-  const dLat = toRad(lat2 - lat1)
-  const dLon = toRad(lon2 - lon1)
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
-function parseXmlGeneric(content: string): ParseResult {
-  try {
-    const data = xmlParser.parse(content)
-    return { success: true, data }
-  } catch (err) {
-    return { success: false, error: `XML parse error: ${(err as Error).message}` }
+const EDITORS: Array<{ name: string; bins: string[] }> = [
+  {
+    name: 'VS Code',
+    bins: [
+      'code',
+      '/usr/local/bin/code',
+      '/opt/homebrew/bin/code',
+      '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'
+    ]
+  },
+  {
+    name: 'Cursor',
+    bins: [
+      'cursor',
+      '/usr/local/bin/cursor',
+      '/opt/homebrew/bin/cursor',
+      '/Applications/Cursor.app/Contents/Resources/app/bin/cursor'
+    ]
+  },
+  {
+    name: 'Zed',
+    bins: [
+      'zed',
+      '/usr/local/bin/zed',
+      '/opt/homebrew/bin/zed',
+      '/Applications/Zed.app/Contents/MacOS/zed'
+    ]
   }
-}
+]
 
-function parseGpxGeneric(content: string): ParseResult {
-  try {
-    const raw = gpxParser.parse(content)
-    const trkpts = (raw as any)?.gpx?.trk?.trkseg?.trkpt
-    if (!trkpts || !Array.isArray(trkpts) || trkpts.length === 0) {
-      return { success: true, data: raw }
-    }
-
-    const points: Array<{ lat: number; lon: number; ele: number | null; time: Date }> = []
-    for (const pt of trkpts) {
-      const lat = parseFloat(pt.lat)
-      const lon = parseFloat(pt.lon)
-      const time = new Date(pt.time)
-      const ele = pt.ele != null ? parseFloat(String(pt.ele)) : null
-      if (isNaN(lat) || isNaN(lon) || isNaN(time.getTime())) continue
-      points.push({ lat, lon, ele: ele !== null && !isNaN(ele) ? ele : null, time })
-    }
-
-    if (points.length === 0) return { success: true, data: { raw, parsed: null } }
-
-    const routePolyline: [number, number][] = points
-      .filter((_, i) => i % 10 === 0)
-      .map(pt => [pt.lat, pt.lon])
-
-    const kmSplits: number[] = []
-    const kmElevationGain: number[] = []
-    const kmElevationLoss: number[] = []
-
-    let cumulativeDist = 0
-    let kmBoundary = 1
-    let kmStartTime = points[0].time
-    let prevPt = points[0]
-    let kmElevGain = 0
-    let kmElevLoss = 0
-
-    for (let i = 1; i < points.length; i++) {
-      const pt = points[i]
-      cumulativeDist += haversine(prevPt.lat, prevPt.lon, pt.lat, pt.lon)
-
-      if (pt.ele != null && prevPt.ele != null) {
-        const delta = pt.ele - prevPt.ele
-        if (delta > 0) kmElevGain += delta
-        else kmElevLoss += Math.abs(delta)
-      }
-
-      if (cumulativeDist >= kmBoundary) {
-        const elapsedMs = pt.time.getTime() - kmStartTime.getTime()
-        const elapsedMin = elapsedMs / 1000 / 60
-        if (elapsedMin > 0 && elapsedMin <= 12) {
-          kmSplits.push(Math.round(elapsedMin * 60))
-          kmElevationGain.push(Math.round(kmElevGain))
-          kmElevationLoss.push(Math.round(kmElevLoss))
-        }
-        kmStartTime = pt.time
-        kmBoundary++
-        kmElevGain = 0
-        kmElevLoss = 0
-      }
-      prevPt = pt
-    }
-
-    const result = {
-      raw,
-      parsed: {
-        totalPoints: points.length,
-        startLat: points[0].lat,
-        startLon: points[0].lon,
-        kmSplits,
-        kmElevationGain,
-        kmElevationLoss,
-        routePolyline
+function findEditorPath(): { name: string; bin: string } | null {
+  for (const { name, bins } of EDITORS) {
+    for (const bin of bins) {
+      if (bin.includes('/')) {
+        if (existsSync(bin)) return { name, bin }
+      } else {
+        try {
+          execFileSync('which', [bin], { encoding: 'utf-8' })
+          return { name, bin }
+        } catch { }
       }
     }
-
-    return { success: true, data: result }
-  } catch (err) {
-    return { success: false, error: `GPX parse error: ${(err as Error).message}` }
   }
-}
-
-function getFileInfo(content: string): { size: number; lines: number } {
-  return {
-    size: new TextEncoder().encode(content).length,
-    lines: content.split('\n').length
-  }
+  return null
 }
 
 export function registerIpcHandlers(): void {
@@ -149,26 +75,15 @@ export function registerIpcHandlers(): void {
     if (result.canceled || result.filePaths.length === 0) return null
 
     const path = result.filePaths[0]
-    const content = readFileSync(path, 'utf-8')
     const name = path.split('/').pop() || path.split('\\').pop() || 'unknown'
-    return {
-      content,
-      name,
-      path,
-      size: new TextEncoder().encode(content).length
-    }
+    return { name, path, size: 0 }
   })
 
   ipcMain.handle('read-file', async (_, path: string): Promise<FileResult | null> => {
     try {
       if (!existsSync(path)) return null
-      const content = readFileSync(path, 'utf-8')
       const name = path.split('/').pop() || path.split('\\').pop() || 'unknown'
-      return {
-        content,
-        name,
-        size: new TextEncoder().encode(content).length
-      }
+      return { name, size: 0 }
     } catch {
       return null
     }
@@ -180,28 +95,93 @@ export function registerIpcHandlers(): void {
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
-      const content = await response.text()
+      const text = await response.text()
       const name = url.split('/').pop() || 'response.xml'
-      return {
-        content,
-        name,
-        size: new TextEncoder().encode(content).length
-      }
+
+      const tmpFile = join(tmpdir(), `xml2json-url-${Date.now()}.xml`)
+      writeFileSync(tmpFile, text, 'utf-8')
+      tempFiles.add(tmpFile)
+
+      return { name, path: tmpFile, size: Buffer.byteLength(text, 'utf-8') }
     } catch (err) {
       throw new Error(`Failed to fetch URL: ${(err as Error).message}`)
     }
   })
 
-  ipcMain.handle('parse-xml', (_, content: string): ParseResult => {
-    return parseXmlGeneric(content)
+  ipcMain.handle('stream-file', async (event, filePath: string): Promise<{ name: string; size: number; success: boolean; error?: string }> => {
+    const name = filePath.split('/').pop() || filePath.split('\\').pop() || 'unknown'
+    const isGpx = name.toLowerCase().endsWith('.gpx')
+    const win = BrowserWindow.fromWebContents(event.sender)
+
+    return new Promise((resolve) => {
+      parseStream(filePath, isGpx, {
+        onProgress: (data: ParseProgressData) => {
+          if (win && !win.isDestroyed()) {
+            event.sender.send('parse-progress', data)
+          }
+        },
+        onXmlChunk: (chunk: string) => {
+          if (win && !win.isDestroyed()) {
+            event.sender.send('xml-chunk', chunk)
+          }
+        },
+        onComplete: (result: { filePath: string; name: string; size: number }) => {
+          tempFiles.add(result.filePath)
+          if (win && !win.isDestroyed()) {
+            event.sender.send('parse-complete', result)
+          }
+          resolve({ name, size: result.size, success: true })
+        },
+        onError: (error: string) => {
+          if (win && !win.isDestroyed()) {
+            event.sender.send('parse-error', error)
+          }
+          resolve({ name, size: 0, success: false, error })
+        }
+      })
+    })
   })
 
-  ipcMain.handle('parse-gpx', (_, content: string): ParseResult => {
-    return parseGpxGeneric(content)
+  ipcMain.handle('read-json-file', async (_, jsonPath: string): Promise<string | null> => {
+    if (DataStore.isLargeFile()) return null
+    try {
+      return DataStore.getText()
+    } catch {
+      return null
+    }
   })
 
-  ipcMain.handle('get-file-info', (_, content: string) => {
-    return getFileInfo(content)
+  ipcMain.handle('get-json-summary', async (): Promise<{
+    fileSize: number
+    isLarge: boolean
+    topLevelKeys: string[]
+    parsedData: unknown
+    preview: string
+  }> => {
+    const keys = DataStore.getTopLevelKeys()
+    const parsed = DataStore.getParsed()
+    const preview = DataStore.readStartingBytes(1024 * 10) ?? ''
+    return {
+      fileSize: DataStore.getFileSize(),
+      isLarge: DataStore.isLargeFile(),
+      topLevelKeys: keys,
+      parsedData: parsed,
+      preview
+    }
+  })
+
+  ipcMain.handle('json-query', async (_, path: string): Promise<string | null> => {
+    const result = DataStore.query(path)
+    if (result === undefined) return null
+    return JSON.stringify(result)
+  })
+
+  ipcMain.handle('json-read-chunk', async (_, start: number, length: number): Promise<string | null> => {
+    return DataStore.readBytes(start, length)
+  })
+
+  ipcMain.handle('get-index-tree', async () => {
+    return DataStore.getIndexTree()
   })
 
   ipcMain.handle('save-file', async (_, content: string, defaultName: string): Promise<boolean> => {
@@ -223,41 +203,23 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('detect-editors', (): string | null => {
-    const editors = [
-      { name: 'VS Code', bin: 'code' },
-      { name: 'Cursor', bin: 'cursor' },
-      { name: 'Zed', bin: 'zed' },
-    ]
-    for (const editor of editors) {
-      try {
-        execFileSync('which', [editor.bin], { encoding: 'utf-8' })
-        return editor.name
-      } catch {
-        continue
-      }
-    }
-    return null
+    const editor = findEditorPath()
+    return editor?.name ?? null
   })
 
   ipcMain.handle('open-in-editor', async (_, content: string): Promise<boolean> => {
-    for (const bin of ['code', 'cursor', 'zed']) {
-      try {
-        execFileSync('which', [bin], { encoding: 'utf-8' })
-        const tmpFile = join(tmpdir(), `xml2json-${Date.now()}.json`)
-        writeFileSync(tmpFile, content, 'utf-8')
-        tempFiles.add(tmpFile)
-        spawn(bin, [tmpFile], { detached: true, stdio: 'ignore' }).unref()
-        return true
-      } catch {
-        continue
-      }
-    }
-    return false
+    const editor = findEditorPath()
+    if (!editor) return false
+    const tmpFile = join(tmpdir(), `xml2json-${Date.now()}.json`)
+    writeFileSync(tmpFile, content, 'utf-8')
+    tempFiles.add(tmpFile)
+    spawn(editor.bin, [tmpFile], { detached: true, stdio: 'ignore' }).unref()
+    return true
   })
 
-  ipcMain.handle('start-mcp-server', async (_event, port: number, data: unknown): Promise<{ port: number }> => {
+  ipcMain.handle('start-mcp-server', async (_event, port: number): Promise<{ port: number }> => {
     try {
-      const result = await mcpStart(port, data)
+      const result = await mcpStart(port)
       return result
     } catch (err) {
       console.error('Failed to start MCP server:', err)
@@ -273,4 +235,3 @@ export function registerIpcHandlers(): void {
     return mcpStatus()
   })
 }
-

@@ -7,10 +7,7 @@ export function Sidebar() {
     if (file.path.startsWith('http://') || file.path.startsWith('https://')) {
       await loadUrl(file.path)
     } else {
-      const result = await window.api.readFile(file.path)
-      if (result) {
-        await loadFile(result.content, result.name, file.path)
-      }
+      await loadFile(file.path)
     }
   }
 

@@ -1,7 +1,8 @@
-import { contextBridge, ipcRenderer } from 'electron'
-import type { FileResult, ParseResult, RecentFile, McpStatus } from '../shared/types'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
+import type { FileResult, RecentFile, McpStatus, JsonSummary } from '../shared/types'
 
 const electronAPI = {
+  getPathForFile: (file: File): string | null => webUtils.getPathForFile(file),
   openFile: (): Promise<FileResult | null> => ipcRenderer.invoke('open-file'),
 
   readFile: (path: string): Promise<FileResult | null> => ipcRenderer.invoke('read-file', path),
@@ -9,14 +10,22 @@ const electronAPI = {
   fetchUrl: (url: string): Promise<FileResult | null> =>
     ipcRenderer.invoke('fetch-url', url),
 
-  parseXml: (content: string): Promise<ParseResult> =>
-    ipcRenderer.invoke('parse-xml', content),
+  streamFile: (filePath: string): Promise<{ name: string; size: number; success: boolean; error?: string }> =>
+    ipcRenderer.invoke('stream-file', filePath),
 
-  parseGpx: (content: string): Promise<ParseResult> =>
-    ipcRenderer.invoke('parse-gpx', content),
+  readJsonFile: (filePath: string): Promise<string | null> =>
+    ipcRenderer.invoke('read-json-file', filePath),
 
-  getFileInfo: (content: string): Promise<{ size: number; lines: number }> =>
-    ipcRenderer.invoke('get-file-info', content),
+  getJsonSummary: (): Promise<JsonSummary> =>
+    ipcRenderer.invoke('get-json-summary'),
+
+  jsonQuery: (path: string): Promise<string | null> =>
+    ipcRenderer.invoke('json-query', path),
+
+  readJsonChunk: (start: number, length: number): Promise<string | null> =>
+    ipcRenderer.invoke('json-read-chunk', start, length),
+
+  getIndexTree: <T = unknown>() => ipcRenderer.invoke('get-index-tree') as Promise<T>,
 
   saveFile: (content: string, defaultName: string): Promise<boolean> =>
     ipcRenderer.invoke('save-file', content, defaultName),
@@ -42,8 +51,8 @@ const electronAPI = {
     return Promise.resolve()
   },
 
-  startMcpServer: (port: number, data: unknown): Promise<{ port: number }> =>
-    ipcRenderer.invoke('start-mcp-server', port, data),
+  startMcpServer: (port: number): Promise<{ port: number }> =>
+    ipcRenderer.invoke('start-mcp-server', port),
 
   stopMcpServer: (): Promise<void> => ipcRenderer.invoke('stop-mcp-server'),
 
@@ -53,7 +62,17 @@ const electronAPI = {
 
   detectEditors: (): Promise<string | null> => ipcRenderer.invoke('detect-editors'),
 
-  openInEditor: (content: string): Promise<boolean> => ipcRenderer.invoke('open-in-editor', content)
+  openInEditor: (content: string): Promise<boolean> => ipcRenderer.invoke('open-in-editor', content),
+
+  on: (channel: string, cb: (...args: unknown[]) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, ...args: unknown[]) => cb(...args)
+    ipcRenderer.on(channel, handler)
+    return () => ipcRenderer.removeListener(channel, handler)
+  },
+
+  removeAllListeners: (channel: string): void => {
+    ipcRenderer.removeAllListeners(channel)
+  }
 }
 
 contextBridge.exposeInMainWorld('api', electronAPI)

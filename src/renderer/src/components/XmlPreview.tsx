@@ -1,9 +1,8 @@
-import { useRef, useEffect, useMemo, useCallback, useState, type DragEvent } from 'react'
+import { useRef, useEffect, useCallback, useState, type DragEvent } from 'react'
 import { EditorView, basicSetup } from 'codemirror'
 import { EditorState, Compartment } from '@codemirror/state'
 import { xml } from '@codemirror/lang-xml'
 import { oneDark } from '@codemirror/theme-one-dark'
-import formatXml from 'xml-formatter'
 import { useApp } from '../App'
 
 const themeCompartment = new Compartment()
@@ -49,20 +48,8 @@ function buildExtensions(theme: 'light' | 'dark') {
   ]
 }
 
-function formatXmlContent(raw: string): string {
-  try {
-    return formatXml(raw, {
-      indentation: '  ',
-      collapseContent: true,
-      lineSeparator: '\n',
-    })
-  } catch {
-    return raw
-  }
-}
-
 export function XmlPreview() {
-  const { fileContent, fileName, isParsing, parseError, theme, openFileDialog, loadFile } = useApp()
+  const { fileName, isParsing, parseProgress, parseError, isParsed, theme, openFileDialog, loadFile } = useApp()
   const [isDragging, setIsDragging] = useState(false)
   const dropRef = useRef<HTMLDivElement>(null)
 
@@ -88,55 +75,32 @@ export function XmlPreview() {
       if (!file) return
       if (!file.name.endsWith('.xml') && !file.name.endsWith('.gpx')) return
 
-      const text = await file.text()
-      await loadFile(text, file.name)
+      const filePath = window.api.getPathForFile(file)
+      if (!filePath) return
+
+      await loadFile(filePath)
     },
     [loadFile]
   )
-
-  const displayContent = useMemo(() => {
-    if (!fileContent) return ''
-    return formatXmlContent(fileContent)
-  }, [fileContent])
 
   const viewRef = useRef<EditorView | null>(null)
   const themeRef = useRef(theme)
   themeRef.current = theme
 
-  const containerRef = useCallback(
-    (el: HTMLDivElement | null) => {
-      if (el) {
-        if (!displayContent) return
+  const appendToEditor = useCallback((text: string) => {
+    if (!viewRef.current) return
+    viewRef.current.dispatch({
+      changes: { from: viewRef.current.state.doc.length, insert: text }
+    })
+  }, [])
 
-        if (viewRef.current) {
-          viewRef.current.destroy()
-          viewRef.current = null
-        }
+  const xmlAccumulator = useRef('')
 
-        try {
-          const state = EditorState.create({
-            doc: displayContent,
-            extensions: buildExtensions(themeRef.current),
-          })
-
-          const view = new EditorView({
-            state,
-            parent: el,
-          })
-
-          viewRef.current = view
-        } catch (err) {
-          console.error('[XmlPreview] Editor creation failed:', err)
-        }
-      } else {
-        if (viewRef.current) {
-          viewRef.current.destroy()
-          viewRef.current = null
-        }
-      }
-    },
-    [displayContent],
-  )
+  useEffect(() => {
+    if (isParsing) {
+      xmlAccumulator.current = ''
+    }
+  }, [isParsing])
 
   useEffect(() => {
     if (!viewRef.current) return
@@ -147,20 +111,58 @@ export function XmlPreview() {
     })
   }, [theme])
 
-  if (isParsing) {
-    return (
-      <div className='flex h-full items-center justify-center'>
-        <div className='flex items-center gap-2'>
-          <span className='h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent' />
-          <span className='text-sm text-muted-foreground'>Parsing...</span>
-        </div>
-      </div>
-    )
+  useEffect(() => {
+    const unsubXml = window.api.on('xml-chunk', (chunk: unknown) => {
+      const text = String(chunk)
+      xmlAccumulator.current += text
+      appendToEditor(text)
+    })
+    return () => { unsubXml() }
+  }, [appendToEditor])
+
+  // Reset editor when a new file starts loading
+  const hasStartedRef = useRef(false)
+  useEffect(() => {
+    if (isParsing || isParsed) {
+      hasStartedRef.current = true
+    } else {
+      hasStartedRef.current = false
+      if (viewRef.current) {
+        viewRef.current.destroy()
+        viewRef.current = null
+      }
+    }
+  }, [isParsing, isParsed])
+
+  const handleContainerRef = useCallback((el: HTMLDivElement | null) => {
+    if (el) {
+      if (viewRef.current) {
+        viewRef.current.destroy()
+        viewRef.current = null
+      }
+      const state = EditorState.create({
+        doc: '',
+        extensions: buildExtensions(themeRef.current),
+      })
+      const view = new EditorView({ state, parent: el })
+      viewRef.current = view
+    } else {
+      if (viewRef.current) {
+        viewRef.current.destroy()
+        viewRef.current = null
+      }
+    }
+  }, [])
+
+  const outerProps = {
+    onDragOver: handleDragOver as any,
+    onDragLeave: handleDragLeave as any,
+    onDrop: handleDrop as any
   }
 
   if (parseError) {
     return (
-      <div className='flex h-full items-center justify-center p-6'>
+      <div ref={dropRef} {...outerProps} className='flex h-full items-center justify-center p-6'>
         <div className='text-center'>
           <p className='text-sm font-medium text-destructive'>Parse Error</p>
           <p className='mt-1 text-xs text-muted-foreground'>{parseError}</p>
@@ -169,13 +171,11 @@ export function XmlPreview() {
     )
   }
 
-  if (!fileContent) {
+  if (!isParsed && !isParsing) {
     return (
       <div
         ref={dropRef}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
+        {...outerProps}
         className='flex h-full items-center justify-center p-6'
       >
         <div className='text-center'>
@@ -229,8 +229,13 @@ export function XmlPreview() {
   }
 
   return (
-    <div className='flex min-h-0 flex-1 flex-col'>
-      <div ref={containerRef} className='min-h-0 flex-1 overflow-hidden' />
+    <div ref={dropRef} {...outerProps} className='relative flex h-full min-h-0 flex-col'>
+      {isDragging && (
+        <div className='pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-background/80'>
+          <p className='text-sm font-medium text-foreground'>Drop XML or GPX here</p>
+        </div>
+      )}
+      <div ref={handleContainerRef} className='min-h-0 flex-1 overflow-hidden' />
     </div>
   )
 }

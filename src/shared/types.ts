@@ -5,27 +5,34 @@ export interface RecentFile {
 }
 
 export interface FileResult {
-  content: string
   name: string
   path?: string
   size: number
 }
 
-export interface ParseResult {
-  success: boolean
-  data?: unknown
-  error?: string
+export interface ParseProgressData {
+  bytesRead: number
+  totalBytes: number
+  phase: 'parsing'
 }
-
-export interface FileInfo {
-  size: number
-  lines: number
-}
-
-export type ParserMode = 'xml' | 'gpx'
 
 export interface McpStatus {
   running: boolean
   port: number | null
 }
 
+export interface JsonSummary {
+  fileSize: number
+  isLarge: boolean
+  topLevelKeys: string[]
+  parsedData: unknown
+  preview: string
+}
+
+export interface IndexTreeNode {
+  name: string
+  path: string
+  nodeType: 'object' | 'array' | 'scalar'
+  children: IndexTreeNode[]
+  childCount: number
+}

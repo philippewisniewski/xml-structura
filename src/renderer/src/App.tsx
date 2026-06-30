@@ -1,31 +1,36 @@
-import { useState, useEffect, useCallback, createContext, useContext } from 'react'
+import { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react'
 import { PanelResizeHandle as ResizableHandle, Panel as ResizablePanel, PanelGroup as ResizablePanelGroup } from 'react-resizable-panels'
 import { Sidebar } from './components/Sidebar'
 import { XmlPreview } from './components/XmlPreview'
 import { JsonPanel } from './components/JsonPanel'
 import { StatusBar } from './components/StatusBar'
 import { Toolbar } from './components/Toolbar'
-import type { RecentFile } from '@shared/types'
+import type { RecentFile, JsonSummary } from '@shared/types'
 
 interface AppState {
-  fileContent: string | null
   fileName: string | null
   filePath: string | null
   fileSize: number | null
   fileLines: number | null
-  parsedData: unknown | null
-  parseError: string | null
   isParsing: boolean
+  parseProgress: { bytesRead: number; totalBytes: number; phase: 'parsing' } | null
+  parseError: string | null
+  isParsed: boolean
+  isLargeFile: boolean
+  jsonSummary: JsonSummary | null
+  parsedData: unknown | null
+  jsonContent: string | null
   recentFiles: RecentFile[]
   mcpRunning: boolean
   mcpPort: number | null
+  mcpError: string | null
   isSidebarOpen: boolean
   viewMode: 'tree' | 'raw'
   editorName: string | null
 }
 
 interface AppContextType extends AppState {
-  loadFile: (content: string, name: string, path?: string) => Promise<void>
+  loadFile: (filePath: string) => Promise<void>
   loadUrl: (url: string) => Promise<void>
   openFileDialog: () => Promise<void>
   clearFile: () => void
@@ -48,21 +53,27 @@ export function useApp(): AppContextType {
 }
 
 function App() {
-  const [fileContent, setFileContent] = useState<string | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
   const [filePath, setFilePath] = useState<string | null>(null)
   const [fileSize, setFileSize] = useState<number | null>(null)
   const [fileLines, setFileLines] = useState<number | null>(null)
-  const [parsedData, setParsedData] = useState<unknown | null>(null)
-  const [parseError, setParseError] = useState<string | null>(null)
   const [isParsing, setIsParsing] = useState(false)
+  const [parseProgress, setParseProgress] = useState<{ bytesRead: number; totalBytes: number; phase: 'parsing' } | null>(null)
+  const [parseError, setParseError] = useState<string | null>(null)
+  const [isParsed, setIsParsed] = useState(false)
+  const [isLargeFile, setIsLargeFile] = useState(false)
+  const [jsonSummary, setJsonSummary] = useState<JsonSummary | null>(null)
+  const [parsedData, setParsedData] = useState<unknown | null>(null)
+  const [jsonContent, setJsonContent] = useState<string | null>(null)
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([])
   const [mcpRunning, setMcpRunning] = useState(false)
   const [mcpPort, setMcpPort] = useState<number | null>(null)
+  const [mcpError, setMcpError] = useState<string | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [viewMode, setViewMode] = useState<'tree' | 'raw'>('tree')
   const [editorName, setEditorName] = useState<string | null>(null)
+  const cleanupRef = useRef<Array<() => void>>([])
 
   useEffect(() => {
     const stored = localStorage.getItem('theme')
@@ -81,15 +92,22 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (parsedData && !parseError) {
-      window.api.startMcpServer(4283, parsedData).then(result => {
+    if (isParsed && !parseError) {
+      setMcpError(null)
+      window.api.startMcpServer(4283).then(result => {
         setMcpRunning(true)
         setMcpPort(result.port)
+        setMcpError(null)
+      }).catch(err => {
+        setMcpError(String(err))
+        setMcpRunning(false)
+        setMcpPort(null)
       })
     } else {
       window.api.stopMcpServer().then(() => {
         setMcpRunning(false)
         setMcpPort(null)
+        setMcpError(null)
       })
     }
 
@@ -97,9 +115,76 @@ function App() {
       window.api.stopMcpServer().then(() => {
         setMcpRunning(false)
         setMcpPort(null)
+        setMcpError(null)
       })
     }
-  }, [parsedData, parseError])
+  }, [isParsed, parseError])
+
+  const cleanup = useCallback(() => {
+    for (const fn of cleanupRef.current) fn()
+    cleanupRef.current = []
+  }, [])
+
+  const startStream = useCallback(async (path: string, name: string, displayPath?: string) => {
+    cleanup()
+    setIsParsing(true)
+    setIsParsed(false)
+    setIsLargeFile(false)
+    setJsonSummary(null)
+    setParseError(null)
+    setParseProgress(null)
+    setParsedData(null)
+    setJsonContent(null)
+    setFileName(name)
+    setFilePath(displayPath || path)
+    setFileSize(null)
+    setFileLines(null)
+    setMcpError(null)
+
+    const unsubProgress = window.api.on('parse-progress', (data: unknown) => {
+      const d = data as { bytesRead: number; totalBytes: number; phase: 'parsing' }
+      setParseProgress(d)
+    })
+    const unsubComplete = window.api.on('parse-complete', async (result: unknown) => {
+      const { filePath, size } = result as { filePath: string; size: number }
+      if (size) setFileSize(size)
+
+      const summary = await window.api.getJsonSummary()
+      setJsonSummary(summary)
+
+      if (summary.isLarge) {
+        setIsLargeFile(true)
+        if (summary.parsedData) {
+          setParsedData(summary.parsedData)
+        }
+      } else {
+        setIsLargeFile(false)
+        const json = await window.api.readJsonFile(filePath)
+        if (json) {
+          setParsedData(JSON.parse(json))
+          setJsonContent(json)
+        }
+      }
+      setIsParsing(false)
+      setIsParsed(true)
+    })
+    const unsubError = window.api.on('parse-error', (err: unknown) => {
+      setIsParsing(false)
+      setParseError(String(err))
+    })
+    cleanupRef.current = [unsubProgress, unsubComplete, unsubError]
+
+    try {
+      const result = await window.api.streamFile(path)
+      if (!result.success) {
+        setIsParsing(false)
+        setParseError(result.error || 'Parse failed')
+      }
+    } catch (err) {
+      setIsParsing(false)
+      setParseError((err as Error).message)
+    }
+  }, [cleanup])
 
   const toggleTheme = useCallback(() => {
     setTheme(prev => {
@@ -110,52 +195,16 @@ function App() {
     })
   }, [])
 
-  const parseContent = useCallback(
-    async (content: string, name: string, path?: string) => {
-      setFileContent(content)
-      setNameAndSize(content, name, path)
-      setIsParsing(true)
-      setParseError(null)
-      setParsedData(null)
-
-      const isGpx = name.toLowerCase().endsWith('.gpx')
-
-      try {
-        const result = isGpx
-          ? await window.api.parseGpx(content)
-          : await window.api.parseXml(content)
-
-        if (result.success) {
-          setParsedData(result.data)
-        } else {
-          setParseError(result.error || 'Parse failed')
-        }
-      } catch (err) {
-        setParseError((err as Error).message)
-      } finally {
-        setIsParsing(false)
-      }
-    },
-    []
-  )
-
-  async function setNameAndSize(content: string, name: string, path?: string) {
-    setFileName(name)
-    setFilePath(path || null)
-    const info = await window.api.getFileInfo(content)
-    setFileSize(info.size)
-    setFileLines(info.lines)
-  }
-
   const loadFile = useCallback(
-    async (content: string, name: string, path?: string) => {
-      await parseContent(content, name, path)
-      const file: RecentFile = { name, path: path || name, timestamp: Date.now() }
+    async (filePathInput: string) => {
+      const name = filePathInput.split('/').pop() || filePathInput.split('\\').pop() || 'unknown'
+      const file: RecentFile = { name, path: filePathInput, timestamp: Date.now() }
       await window.api.addRecentFile(file)
       const files = await window.api.getRecentFiles()
       setRecentFiles(files)
+      await startStream(filePathInput, name, filePathInput)
     },
-    [parseContent]
+    [startStream]
   )
 
   const loadUrl = useCallback(
@@ -164,8 +213,8 @@ function App() {
         setIsParsing(true)
         setParseError(null)
         const result = await window.api.fetchUrl(url)
-        if (result) {
-          await parseContent(result.content, result.name)
+        if (result && result.path) {
+          await startStream(result.path, result.name)
           const file: RecentFile = { name: result.name, path: url, timestamp: Date.now() }
           await window.api.addRecentFile(file)
           const files = await window.api.getRecentFiles()
@@ -175,37 +224,50 @@ function App() {
         }
       } catch (err) {
         const msg = (err as Error).message
+        setIsParsing(false)
         setParseError(msg)
         throw new Error(msg)
-      } finally {
-        setIsParsing(false)
       }
     },
-    [parseContent]
+    [startStream]
   )
 
   const openFileDialog = useCallback(async () => {
     const result = await window.api.openFile()
-    if (result) {
-      await loadFile(result.content, result.name, result.path)
+    if (result && result.path) {
+      await startStream(result.path, result.name, result.path)
+      const file: RecentFile = { name: result.name, path: result.path, timestamp: Date.now() }
+      await window.api.addRecentFile(file)
+      const files = await window.api.getRecentFiles()
+      setRecentFiles(files)
     }
-  }, [loadFile])
+  }, [startStream])
 
   const clearFile = useCallback(() => {
-    setFileContent(null)
+    cleanup()
     setFileName(null)
     setFilePath(null)
     setFileSize(null)
     setFileLines(null)
-    setParsedData(null)
+    setIsParsing(false)
+    setIsParsed(false)
+    setIsLargeFile(false)
+    setJsonSummary(null)
     setParseError(null)
-  }, [])
+    setParseProgress(null)
+    setParsedData(null)
+    setJsonContent(null)
+    setMcpError(null)
+    window.api.stopMcpServer().then(() => {
+      setMcpRunning(false)
+      setMcpPort(null)
+    })
+  }, [cleanup])
 
   const handleOpenInEditor = useCallback(async () => {
-    if (!parsedData) return
-    const content = JSON.stringify(parsedData, null, 2)
-    await window.api.openInEditor(content)
-  }, [parsedData])
+    if (!jsonContent) return
+    await window.api.openInEditor(jsonContent)
+  }, [jsonContent])
 
   const clearRecentFilesFn = useCallback(async () => {
     await window.api.clearRecentFiles()
@@ -217,30 +279,38 @@ function App() {
   }, [])
 
   const copyJson = useCallback(async () => {
-    if (!parsedData) return
-    const text = JSON.stringify(parsedData, null, 2)
-    await navigator.clipboard.writeText(text)
-  }, [parsedData])
+    if (!jsonContent) return
+    await navigator.clipboard.writeText(jsonContent)
+  }, [jsonContent])
 
   const downloadJson = useCallback(async () => {
-    if (!parsedData) return
-    const text = JSON.stringify(parsedData, null, 2)
+    if (!jsonContent) return
     const defaultName = (fileName || 'output').replace(/\.(xml|gpx)$/i, '.json')
-    await window.api.saveFile(text, defaultName)
-  }, [parsedData, fileName])
+    await window.api.saveFile(jsonContent, defaultName)
+  }, [jsonContent, fileName])
+
+  const progress = parseProgress
+  const percent = progress && progress.totalBytes > 0
+    ? Math.round((progress.bytesRead / progress.totalBytes) * 100)
+    : 0
 
   const ctx: AppContextType = {
-    fileContent,
     fileName,
     filePath,
     fileSize,
     fileLines,
-    parsedData,
-    parseError,
     isParsing,
+    parseProgress,
+    parseError,
+    isParsed,
+    isLargeFile,
+    jsonSummary,
+    parsedData,
+    jsonContent,
     recentFiles,
     mcpRunning,
     mcpPort,
+    mcpError,
     isSidebarOpen,
     viewMode,
     editorName,
@@ -280,7 +350,14 @@ function App() {
                 </span>
               )}
               {fileLines !== null && <span>{fileLines.toLocaleString()} lines</span>}
-              {parsedData !== null && <span className='text-green-500'>✓ Parsed</span>}
+              {isParsing && progress && (
+                <span className='flex items-center gap-1'>
+                  <span className='h-2 w-2 animate-spin rounded-full border-[1.5px] border-primary border-t-transparent' />
+                  Parsing {percent}%
+                </span>
+              )}
+              {isParsed && <span className='text-green-500'>✓ Parsed</span>}
+              {isParsed && isLargeFile && <span className='text-muted-foreground'>— Structure view (index)</span>}
               {parseError !== null && <span className='text-destructive'>✗ Error</span>}
             </div>
             <div className='flex items-center gap-1'>
@@ -327,7 +404,7 @@ function App() {
               </button>
               <button
                 onClick={handleOpenInEditor}
-                disabled={!editorName || !parsedData}
+                disabled={!editorName || !isParsed}
                 className='rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
                 title={
                   editorName

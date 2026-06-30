@@ -3,10 +3,21 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { createServer } from 'http'
 import type { Server } from 'http'
 import { z } from 'zod'
+import { DataStore } from './data-store'
 
 let server: { mcp: McpServer; transport: StreamableHTTPServerTransport; http: Server; port: number } | null = null
 
-function computeStats(data: unknown): Record<string, number> {
+function computeStats(): Record<string, number> {
+  if (DataStore.isLargeFile()) {
+    return {
+      fileSize: DataStore.getFileSize(),
+      topLevelKeys: DataStore.getTopLevelKeys().length,
+      note: -1
+    }
+  }
+
+  const data = DataStore.get()
+  if (!data) return {}
   const counts: Record<string, number> = {}
 
   function walk(value: unknown, path: string): void {
@@ -27,7 +38,20 @@ function computeStats(data: unknown): Record<string, number> {
   return counts
 }
 
-function inferSchema(data: unknown): unknown {
+function inferSchema(): unknown {
+  if (DataStore.isLargeFile()) {
+    return {
+      type: 'object',
+      properties: Object.fromEntries(
+        DataStore.getTopLevelKeys().map(k => [k, 'unknown'])
+      ),
+      note: 'File too large for full schema inference. Use query() to explore specific paths.'
+    }
+  }
+
+  const data = DataStore.get()
+  if (!data) return null
+
   function getType(value: unknown): string | Record<string, unknown> | unknown[] {
     if (value === null) return 'null'
     if (value === undefined) return 'undefined'
@@ -49,7 +73,13 @@ function inferSchema(data: unknown): unknown {
   return getType(data)
 }
 
-function searchInData(data: unknown, query: string): unknown[] {
+function searchInData(query: string): unknown[] {
+  if (DataStore.isLargeFile()) {
+    return DataStore.search(query)
+  }
+
+  const data = DataStore.get()
+  if (!data) return []
   const results: unknown[] = []
   const lowerQuery = query.toLowerCase()
 
@@ -75,7 +105,13 @@ function searchInData(data: unknown, query: string): unknown[] {
   return results
 }
 
-function findJsonPath(data: unknown, path: string): unknown {
+function findJsonPath(path: string): unknown {
+  const result = DataStore.query(path)
+  if (result !== undefined) return result
+
+  const data = DataStore.get()
+  if (!data) return undefined
+
   const parts = path.replace(/^(\$|\.)/, '').split(/\.|(?=\[)/)
   let current: unknown = data
 
@@ -111,24 +147,38 @@ function findJsonPath(data: unknown, path: string): unknown {
   return current
 }
 
-export async function startMcpServer(port: number, data: unknown): Promise<{ port: number }> {
+export async function startMcpServer(port: number): Promise<{ port: number }> {
   if (server) {
     await stopMcpServer()
   }
 
-  const transport = new StreamableHTTPServerTransport()
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => crypto.randomUUID()
+  })
 
   const mcp = new McpServer({ name: 'xml2json', version: '0.1.0' })
-
-  const rawJson = JSON.stringify(data, null, 2)
 
   mcp.resource(
     'Current Data (Raw)',
     'xml2json://current/raw',
     { description: 'Full parsed JSON of the currently loaded XML/GPX file', mimeType: 'application/json' },
-    async () => ({
-      contents: [{ uri: 'xml2json://current/raw', text: rawJson, mimeType: 'application/json' }]
-    })
+    async () => {
+      if (DataStore.isLargeFile()) {
+        const preview = DataStore.readStartingBytes(1024 * 50) ?? ''
+        return {
+          contents: [{
+            uri: 'xml2json://current/raw',
+            text: preview + '\n\n...(file too large, showing first 50KB)...',
+            mimeType: 'application/json'
+          }]
+        }
+      }
+      const data = DataStore.get()
+      const rawJson = data ? JSON.stringify(data, null, 2) : '{}'
+      return {
+        contents: [{ uri: 'xml2json://current/raw', text: rawJson, mimeType: 'application/json' }]
+      }
+    }
   )
 
   mcp.resource(
@@ -136,7 +186,7 @@ export async function startMcpServer(port: number, data: unknown): Promise<{ por
     'xml2json://current/stats',
     { description: 'Element counts and statistics about the current data' },
     async () => ({
-      contents: [{ uri: 'xml2json://current/stats', text: JSON.stringify(computeStats(data), null, 2), mimeType: 'application/json' }]
+      contents: [{ uri: 'xml2json://current/stats', text: JSON.stringify(computeStats(), null, 2), mimeType: 'application/json' }]
     })
   )
 
@@ -145,7 +195,7 @@ export async function startMcpServer(port: number, data: unknown): Promise<{ por
     'Search the parsed data for values matching a query string',
     { query: z.string().describe('The text to search for (case-insensitive)') },
     async (args) => ({
-      content: [{ type: 'text' as const, text: JSON.stringify(searchInData(data, args.query), null, 2) }]
+      content: [{ type: 'text' as const, text: JSON.stringify(searchInData(args.query), null, 2) }]
     })
   )
 
@@ -154,7 +204,7 @@ export async function startMcpServer(port: number, data: unknown): Promise<{ por
     'Query a JSONPath-like expression against the parsed data',
     { path: z.string().describe('Path expression e.g. $.Workout[0] or Workout.0.duration') },
     async (args) => {
-      const result = findJsonPath(data, args.path)
+      const result = findJsonPath(args.path)
       return {
         content: [{ type: 'text' as const, text: result !== undefined ? JSON.stringify(result, null, 2) : 'Not found' }]
       }
@@ -166,21 +216,15 @@ export async function startMcpServer(port: number, data: unknown): Promise<{ por
     'Infer the schema/structure of the parsed data',
     {},
     async () => ({
-      content: [{ type: 'text' as const, text: JSON.stringify(inferSchema(data), null, 2) }]
+      content: [{ type: 'text' as const, text: JSON.stringify(inferSchema(), null, 2) }]
     })
   )
 
   const httpServer = createServer(async (req, res) => {
     try {
-      let parsedBody: unknown = undefined
-      if (req.method === 'POST') {
-        const chunks: Buffer[] = []
-        for await (const chunk of req) chunks.push(chunk)
-        const body = Buffer.concat(chunks).toString('utf-8')
-        if (body) parsedBody = JSON.parse(body)
-      }
-      await transport.handleRequest(req, res, parsedBody)
+      await transport.handleRequest(req, res)
     } catch (err) {
+      console.error('[MCP] handleRequest error:', err)
       if (!res.headersSent) {
         res.writeHead(500)
         res.end(JSON.stringify({ error: String(err) }))
