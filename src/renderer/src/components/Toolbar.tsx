@@ -48,7 +48,7 @@ export function Toolbar() {
           <rect x='2' y='11.5' width='12' height='1.5' rx='0.75' fill='currentColor' />
         </svg>
       </button>
-      <span className='text-sm font-semibold text-foreground shrink-0'>xml2json</span>
+      <span className='text-sm font-semibold text-foreground shrink-0'>Structura</span>
       <button
         {...noDrag}
         onClick={clearFile}

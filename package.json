@@ -1,7 +1,7 @@
 {
-  "name": "xml2json",
-  "version": "0.1.0",
-  "description": "Desktop app to parse XML/GPX files into JSON with AI-queryable MCP integration",
+  "name": "structura",
+  "version": "1.0.0",
+  "description": "Desktop app to parse XML/GPX into structured JSON with tree browsing, streaming, and MCP agent integration",
   "main": "./out/main/index.js",
   "type": "module",
   "scripts": {
@@ -33,8 +33,8 @@
     "zod": "^4.4.3"
   },
   "build": {
-    "appId": "com.xml2json.app",
-    "productName": "xml2json",
+    "appId": "com.structura.app",
+    "productName": "Structura",
     "directories": {
       "output": "dist"
     },

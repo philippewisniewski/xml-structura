@@ -156,18 +156,18 @@ export async function startMcpServer(port: number): Promise<{ port: number }> {
     sessionIdGenerator: () => crypto.randomUUID()
   })
 
-  const mcp = new McpServer({ name: 'xml2json', version: '0.1.0' })
+  const mcp = new McpServer({ name: 'Structura', version: '1.0.0' })
 
   mcp.resource(
     'Current Data (Raw)',
-    'xml2json://current/raw',
+    'structura://current/raw',
     { description: 'Full parsed JSON of the currently loaded XML/GPX file', mimeType: 'application/json' },
     async () => {
       if (DataStore.isLargeFile()) {
         const preview = DataStore.readStartingBytes(1024 * 50) ?? ''
         return {
           contents: [{
-            uri: 'xml2json://current/raw',
+            uri: 'structura://current/raw',
             text: preview + '\n\n...(file too large, showing first 50KB)...',
             mimeType: 'application/json'
           }]
@@ -176,17 +176,17 @@ export async function startMcpServer(port: number): Promise<{ port: number }> {
       const data = DataStore.get()
       const rawJson = data ? JSON.stringify(data, null, 2) : '{}'
       return {
-        contents: [{ uri: 'xml2json://current/raw', text: rawJson, mimeType: 'application/json' }]
+        contents: [{ uri: 'structura://current/raw', text: rawJson, mimeType: 'application/json' }]
       }
     }
   )
 
   mcp.resource(
     'Current Data (Stats)',
-    'xml2json://current/stats',
+    'structura://current/stats',
     { description: 'Element counts and statistics about the current data' },
     async () => ({
-      contents: [{ uri: 'xml2json://current/stats', text: JSON.stringify(computeStats(), null, 2), mimeType: 'application/json' }]
+      contents: [{ uri: 'structura://current/stats', text: JSON.stringify(computeStats(), null, 2), mimeType: 'application/json' }]
     })
   )
 

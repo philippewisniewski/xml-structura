@@ -91,20 +91,32 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('fetch-url', async (_, url: string): Promise<FileResult | null> => {
     try {
-      const response = await fetch(url)
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Structura/1.0.0',
+          'Accept': 'application/xml, text/xml, */*'
+        }
+      })
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
       const text = await response.text()
       const name = url.split('/').pop() || 'response.xml'
 
-      const tmpFile = join(tmpdir(), `xml2json-url-${Date.now()}.xml`)
+      const tmpFile = join(tmpdir(), `structura-url-${Date.now()}.xml`)
       writeFileSync(tmpFile, text, 'utf-8')
       tempFiles.add(tmpFile)
 
       return { name, path: tmpFile, size: Buffer.byteLength(text, 'utf-8') }
     } catch (err) {
-      throw new Error(`Failed to fetch URL: ${(err as Error).message}`)
+      const cause = (err as Error).cause
+      let detail = (err as Error).message
+      if (cause && typeof cause === 'object' && 'message' in cause) {
+        detail = (cause as Error).message
+      } else if (detail === 'fetch failed') {
+        detail = 'Could not reach the server — check the URL and your internet connection'
+      }
+      throw new Error(`Failed to fetch URL: ${detail}`)
     }
   })
 
@@ -210,7 +222,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('open-in-editor', async (_, content: string): Promise<boolean> => {
     const editor = findEditorPath()
     if (!editor) return false
-    const tmpFile = join(tmpdir(), `xml2json-${Date.now()}.json`)
+    const tmpFile = join(tmpdir(), `structura-${Date.now()}.json`)
     writeFileSync(tmpFile, content, 'utf-8')
     tempFiles.add(tmpFile)
     spawn(editor.bin, [tmpFile], { detached: true, stdio: 'ignore' }).unref()

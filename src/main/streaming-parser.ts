@@ -42,7 +42,7 @@ export async function parseStream(
     return
   }
 
-  const tmpJsonFile = join(tmpdir(), `xml2json-${Date.now()}.json`)
+  const tmpJsonFile = join(tmpdir(), `structura-${Date.now()}.json`)
   const tmpIdxFile = tmpJsonFile + '.idx'
 
   const indexEntries: string[] = []
@@ -131,6 +131,15 @@ export async function parseStream(
   }
 
   parser.ontext = (text: string) => {
+    writer.setText(text)
+
+    if (isGpx && currentTrkpt) {
+      if (eleDepth > 0) currentTrkpt.ele += text
+      if (timeDepth > 0) currentTrkpt.time += text
+    }
+  }
+
+  parser.oncdata = (text: string) => {
     writer.setText(text)
 
     if (isGpx && currentTrkpt) {

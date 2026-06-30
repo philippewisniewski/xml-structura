@@ -210,7 +210,6 @@ function App() {
   const loadUrl = useCallback(
     async (url: string) => {
       try {
-        setIsParsing(true)
         setParseError(null)
         const result = await window.api.fetchUrl(url)
         if (result && result.path) {
@@ -223,10 +222,8 @@ function App() {
           throw new Error('Failed to fetch URL')
         }
       } catch (err) {
-        const msg = (err as Error).message
         setIsParsing(false)
-        setParseError(msg)
-        throw new Error(msg)
+        throw err
       }
     },
     [startStream]
@@ -270,9 +267,10 @@ function App() {
   }, [jsonContent])
 
   const clearRecentFilesFn = useCallback(async () => {
+    clearFile()
     await window.api.clearRecentFiles()
     setRecentFiles([])
-  }, [])
+  }, [clearFile])
 
   const toggleSidebar = useCallback(() => {
     setIsSidebarOpen(prev => !prev)

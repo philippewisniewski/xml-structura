@@ -14,7 +14,7 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    title: 'xml2json',
+    title: 'Structura',
     titleBarStyle: 'hidden',
     icon,
     webPreferences: {
@@ -40,7 +40,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.xml2json')
+  electronApp.setAppUserModelId('com.structura')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

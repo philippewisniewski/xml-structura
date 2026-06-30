@@ -5,7 +5,7 @@ export function StatusBar() {
 
   const dot = mcpError ? 'bg-destructive' : mcpRunning ? 'bg-green-500' : 'bg-muted-foreground'
   const color = mcpError ? 'text-destructive' : mcpRunning ? 'text-green-500' : 'text-muted-foreground'
-  const label = mcpError ? 'Error' : mcpRunning ? 'xml2json' : 'Disconnected'
+  const label = mcpError ? 'Error' : mcpRunning ? 'Structura' : 'Disconnected'
 
   return (
     <footer className='flex h-6 items-center justify-end border-t border-border bg-muted/30 px-3'>
