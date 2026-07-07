@@ -1,17 +1,25 @@
-import { JsonFileReader, type JsonFileReader as IReader, type IndexTreeNode } from './json-file-reader'
+import { JsonFileReader, tryExtractPathFrom, type IndexTreeNode } from './json-file-reader'
+import type { ParsedResult } from './xml-parser'
+import type { GpxStats } from './gpx-processor'
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 
-let filePath: string | null = null
-let cachedReader: IReader | null = null
+let parsedResult: ParsedResult | null = null
+let cachedReader: JsonFileReader | null = null
+let cachedJsonText: string | null = null
+let gpxStats: GpxStats | null = null
 
-function getReader(): IReader | null {
-  if (!filePath) return null
-  if (cachedReader?.getFilePath() === filePath) return cachedReader
+function getReader(): JsonFileReader | null {
+  if (!parsedResult) return null
+  if (cachedReader?.getFilePath() === parsedResult.filePath) return cachedReader
   try {
     cachedReader?.close()
-    const reader = new JsonFileReader(filePath)
+    const reader = new JsonFileReader(parsedResult.filePath, parsedResult.index)
     cachedReader = reader
+
+    if (!reader.isLarge()) {
+      cachedJsonText = reader.getText()
+    }
     return reader
   } catch {
     return null
@@ -19,80 +27,137 @@ function getReader(): IReader | null {
 }
 
 export const DataStore = {
-  setFilePath(p: string): void {
-    filePath = p
+  setResult(result: ParsedResult): void {
+    parsedResult = result
     cachedReader?.close()
     cachedReader = null
+    cachedJsonText = null
   },
+
+  setGpxStats(stats: GpxStats): void {
+    gpxStats = stats
+  },
+
   getFilePath(): string | null {
-    return filePath
+    return parsedResult?.filePath ?? null
   },
-  /** For small files: returns full parsed JSON */
+
   get(): JsonValue | null {
     const reader = getReader()
     if (!reader) return null
     if (reader.isLarge()) return null
+    if (cachedJsonText) {
+      try {
+        return JSON.parse(cachedJsonText) as JsonValue
+      } catch {
+        return null
+      }
+    }
     return reader.getData()
   },
-  /** For small files: returns full JSON text */
+
   getText(): string | null {
     const reader = getReader()
     if (!reader) return null
-    return reader.getText()
+    if (reader.isLarge()) return null
+    return cachedJsonText
   },
-  /** Whether the file is too large to load in memory */
+
   isLargeFile(): boolean {
     const reader = getReader()
     return reader ? reader.isLarge() : false
   },
-  /** Get the file size */
+
   getFileSize(): number {
-    const reader = getReader()
-    return reader ? reader.getFileSize() : 0
+    return parsedResult?.size ?? 0
   },
-  /** Query a specific path in the JSON */
+
   query(path: string): JsonValue | undefined {
     const reader = getReader()
     if (!reader) return undefined
+
+    if (cachedJsonText) {
+      try {
+        const data = JSON.parse(cachedJsonText) as JsonValue
+        const parts = path.replace(/^\$\.?/, '').split('.').filter(Boolean)
+        return tryExtractPathFrom(data, parts)
+      } catch {
+        // fall through to reader.query
+      }
+    }
+
     return reader.query(path)
   },
-  /** Search for matching values */
+
   search(query: string, limit?: number): string[] {
+    if (cachedJsonText) {
+      const results: string[] = []
+      const lowerQuery = query.toLowerCase()
+      const lines = cachedJsonText.split('\n')
+      for (const line of lines) {
+        if (line.toLowerCase().includes(lowerQuery)) {
+          results.push(line.trim())
+          if (limit && results.length >= limit) break
+        }
+      }
+      return results
+    }
+
     const reader = getReader()
     if (!reader) return []
     return reader.search(query, limit)
   },
-  /** Get top-level keys */
+
   getTopLevelKeys(): string[] {
+    if (cachedJsonText) {
+      const keys: string[] = []
+      const regex = /"(\w+)":/g
+      let m: RegExpExecArray | null
+      while ((m = regex.exec(cachedJsonText)) !== null) {
+        if (!keys.includes(m[1])) keys.push(m[1])
+      }
+      return keys
+    }
+
     const reader = getReader()
     if (!reader) return []
     return reader.getTopLevelKeys()
   },
-  /** Get _parsed data (GPX files) */
+
   getParsed(): JsonValue | null {
+    if (gpxStats) {
+      return JSON.parse(JSON.stringify(gpxStats)) as JsonValue
+    }
     const reader = getReader()
     if (!reader) return null
     return reader.getParsed()
   },
-  /** Read raw bytes starting from a position */
+
   readStartingBytes(byteCount: number): string | null {
     const reader = getReader()
     if (!reader) return null
     return reader.readStartingBytes(byteCount)
   },
+
   readBytes(start: number, length: number): string | null {
     const reader = getReader()
     if (!reader) return null
     return reader.readBytes(start, length)
   },
+
   getIndexTree(): IndexTreeNode | null {
     const reader = getReader()
     if (!reader) return null
     return reader.buildIndexTree()
   },
+
   clear(): void {
     cachedReader?.close()
     cachedReader = null
-    filePath = null
+    cachedJsonText = null
+    parsedResult = null
+    gpxStats = null
   }
 }
+
+

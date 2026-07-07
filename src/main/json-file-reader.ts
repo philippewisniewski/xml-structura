@@ -1,28 +1,13 @@
-import { openSync, readSync, closeSync, statSync, existsSync, readFileSync } from 'fs'
+import { openSync, readSync, closeSync, statSync, readFileSync } from 'fs'
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 
 const LARGE_THRESHOLD = 50 * 1024 * 1024
 
-interface IndexEntry {
-  start: number
-  arrayCount?: number
-}
-
 function readSlice(fd: number, start: number, size: number): string {
   const buf = Buffer.alloc(size)
   const read = readSync(fd, buf, 0, size, start)
   return buf.toString('utf-8', 0, read)
-}
-
-function parseIndexLine(line: string): { path: string; start: number; count?: number } | null {
-  const parts = line.split('\t')
-  if (parts.length < 2) return null
-  const path = parts[0]
-  const start = parseInt(parts[1], 10)
-  if (isNaN(start)) return null
-  const count = parts.length >= 3 ? parseInt(parts[2], 10) || 0 : 0
-  return { path, start, count: count > 0 ? count : undefined }
 }
 
 function valueEnd(fd: number, start: number, fileSize: number): number {
@@ -36,7 +21,6 @@ function valueEnd(fd: number, start: number, fileSize: number): number {
       const c = readSlice(fd, pos, 1)
       if (!c) break
       if (c === '"') {
-        // skip string
         pos++
         while (pos < fileSize) {
           const sc = readSlice(fd, pos, 1)
@@ -76,27 +60,24 @@ function readCompleteValue(fd: number, start: number, fileSize: number): string 
   return readSlice(fd, start, end - start)
 }
 
+interface IndexEntry {
+  start: number
+  arrayCount?: number
+}
+
 export class JsonFileReader {
   private fd: number
   private fileSize: number
   private index: Map<string, IndexEntry> = new Map()
 
-  constructor(private filePath: string) {
+  constructor(private filePath: string, index?: Map<string, number>) {
     this.fd = openSync(filePath, 'r')
     this.fileSize = statSync(filePath).size
-    this.loadIndex()
-  }
-
-  private loadIndex(): void {
-    const indexPath = this.filePath + '.idx'
-    if (!existsSync(indexPath)) return
-    try {
-      const content = readFileSync(indexPath, 'utf-8')
-      for (const line of content.split('\n').filter(Boolean)) {
-        const entry = parseIndexLine(line)
-        if (entry) this.index.set(entry.path, { start: entry.start, arrayCount: entry.count })
+    if (index) {
+      for (const [path, start] of index) {
+        this.index.set(path, { start })
       }
-    } catch {}
+    }
   }
 
   isLarge(): boolean {
@@ -111,7 +92,6 @@ export class JsonFileReader {
     return this.fileSize
   }
 
-  /** Returns full parsed data for small files */
   getData(): JsonValue | null {
     if (this.isLarge()) return null
     try {
@@ -121,7 +101,6 @@ export class JsonFileReader {
     }
   }
 
-  /** Returns full JSON text for small files */
   getText(): string | null {
     if (this.isLarge()) return null
     try {
@@ -131,7 +110,6 @@ export class JsonFileReader {
     }
   }
 
-  /** Lookup a key path using the index, fall back to scanning */
   query(path: string): JsonValue | undefined {
     const entry = this.index.get(path)
     if (entry) {
@@ -143,7 +121,6 @@ export class JsonFileReader {
       }
     }
 
-    // Try without array indices: $.a.b[0].c → $.a.b.c
     const strippedPath = path.replace(/\[\d+\]/g, '')
     if (strippedPath !== path) {
       const strippedEntry = this.index.get(strippedPath)
@@ -157,7 +134,6 @@ export class JsonFileReader {
       }
     }
 
-    // Try parent path from index: $.a.b[0].c → find $.a.b entry, read that context
     const arrayMatch = path.match(/^(.*?\.\w+)\[\d+\]/)
     if (arrayMatch) {
       const parentPath = arrayMatch[1]
@@ -191,7 +167,6 @@ export class JsonFileReader {
     return undefined
   }
 
-  /** Extract _parsed from the end of the file (GPX files) */
   getParsed(): JsonValue | null {
     const entry = this.index.get('$._parsed')
     if (entry) {
@@ -205,7 +180,6 @@ export class JsonFileReader {
     return null
   }
 
-  /** Search values in the file */
   search(query: string, limit = 200): string[] {
     const results: string[] = []
     const lowerQuery = query.toLowerCase()
@@ -269,7 +243,6 @@ export class JsonFileReader {
   buildIndexTree(): IndexTreeNode {
     const paths = Array.from(this.index.keys())
 
-    // Detect array paths (those ending with '[]')
     const arrayPaths = new Set<string>()
     const cleanPaths: string[] = []
     for (const p of paths) {
@@ -280,7 +253,6 @@ export class JsonFileReader {
       }
     }
 
-    // Build a trie from clean paths
     interface TrieNode { name: string; path: string; children: Map<string, TrieNode> }
     const root: TrieNode = { name: '$', path: '$', children: new Map() }
 
@@ -346,7 +318,7 @@ function tryExtractPath(text: string, parts: string[]): JsonValue | undefined {
   return tryExtractPathFrom(current, parts)
 }
 
-function tryExtractPathFrom(current: JsonValue, parts: string[]): JsonValue | undefined {
+export function tryExtractPathFrom(current: JsonValue, parts: string[]): JsonValue | undefined {
   let val = current
   for (const part of parts) {
     if (val === null || val === undefined) return undefined
@@ -357,13 +329,12 @@ function tryExtractPathFrom(current: JsonValue, parts: string[]): JsonValue | un
       if (typeof val !== 'object' || Array.isArray(val)) return undefined
       const arrVal = (val as Record<string, JsonValue>)[key]
       if (!Array.isArray(arrVal) || index >= arrVal.length) return undefined
-      const arr: JsonValue[] = arrVal
-      val = arr[index]
+      val = arrVal[index]
     } else if (part.match(/^\[(\d+)\]$/)) {
       const index = parseInt(part.match(/^\[(\d+)\]$/)![1], 10)
       if (!Array.isArray(val)) return undefined
-      if (index >= val.length) return undefined
-      val = val[index]
+      if (index >= (val as JsonValue[]).length) return undefined
+      val = (val as JsonValue[])[index]
     } else {
       if (typeof val !== 'object' || Array.isArray(val)) return undefined
       val = (val as Record<string, JsonValue>)[part]

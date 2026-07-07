@@ -1,6 +1,6 @@
-import { openSync, writeSync, closeSync } from 'fs'
+import { openSync, writeSync, closeSync, unlinkSync } from 'fs'
 
-interface ChildEntry {
+interface ChildState {
   count: number
   placeholderPos: number
   arrayClosed: boolean
@@ -9,7 +9,7 @@ interface ChildEntry {
 interface Context {
   tagName: string
   text: string
-  children: Map<string, ChildEntry>
+  children: Map<string, ChildState>
   needsComma: boolean
   objectStarted: boolean
 }
@@ -22,9 +22,6 @@ function escapeJson(s: string): string {
     .replace(/\t/g, '\\t')
 }
 
-export type KeyCallback = (keyPath: string, valueStart: number) => void
-export type TagCloseCallback = (keyPath: string, endOffset: number) => void
-
 function makePath(stack: Context[], name?: string): string {
   const parts = stack.map(c => c.tagName)
   if (name) parts.push(name)
@@ -33,18 +30,19 @@ function makePath(stack: Context[], name?: string): string {
 
 export class StreamingJsonWriter {
   private fd: number
+  private filePath: string
   pos: number = 0
   private stack: Context[] = []
   private rootOpened: boolean = false
-  private onKey: KeyCallback | null = null
-  private onTagClose: TagCloseCallback | null = null
-  /** Tracks final count for each array path (path without []) */
-  private _arrayCounts: Map<string, number> = new Map()
+  private onKey: ((keyPath: string, valueStart: number) => void) | null = null
 
-  constructor(tmpPath: string, onKey?: KeyCallback, onTagClose?: TagCloseCallback) {
+  constructor(
+    tmpPath: string,
+    onKey?: (keyPath: string, valueStart: number) => void
+  ) {
+    this.filePath = tmpPath
     this.fd = openSync(tmpPath, 'w')
     this.onKey = onKey || null
-    this.onTagClose = onTagClose || null
   }
 
   openTag(name: string, attrs: Record<string, string>): void {
@@ -61,15 +59,18 @@ export class StreamingJsonWriter {
         objectStarted: false
       }
       const rootPath = '$.' + name
-      const hasAttrs = Object.keys(attrs).length > 0
-      if (hasAttrs) {
+      if (Object.keys(attrs).length > 0) {
         this.write('{')
         ctx.objectStarted = true
         let first = true
         for (const [k, v] of Object.entries(attrs)) {
           if (!first) this.write(', ')
           this.write(`"${escapeJson(k)}":"${escapeJson(v)}"`)
-          if (this.onKey) this.onKey(rootPath + '.' + k, this.pos - Buffer.byteLength(`"${escapeJson(v)}"`, 'utf-8'))
+          if (this.onKey)
+            this.onKey(
+              rootPath + '.' + k,
+              this.pos - Buffer.byteLength(`"${escapeJson(v)}"`, 'utf-8')
+            )
           first = false
           ctx.needsComma = true
         }
@@ -102,10 +103,6 @@ export class StreamingJsonWriter {
 
     const itemPath = makePath(this.stack, name)
 
-    if (childInfo.count >= 2) {
-      this._arrayCounts.set(itemPath, childInfo.count)
-    }
-
     if (childInfo.count === 1) {
       if (parent.needsComma) this.write(', ')
       parent.needsComma = true
@@ -119,9 +116,7 @@ export class StreamingJsonWriter {
       this.write('[')
       this.pos = endPos
       this.write(', ')
-      if (this.onKey) {
-        this.onKey(itemPath + '[]', childInfo.placeholderPos)
-      }
+      if (this.onKey) this.onKey(itemPath + '[]', childInfo.placeholderPos)
     } else {
       this.write(', ')
     }
@@ -134,8 +129,7 @@ export class StreamingJsonWriter {
       objectStarted: false
     }
 
-    const hasAttrs = Object.keys(attrs).length > 0
-    if (hasAttrs) {
+    if (Object.keys(attrs).length > 0) {
       this.write('{')
       ctx.objectStarted = true
       let first = true
@@ -143,7 +137,10 @@ export class StreamingJsonWriter {
         if (!first) this.write(', ')
         this.write(`"${escapeJson(k)}":"${escapeJson(v)}"`)
         if (this.onKey && childInfo.count < 2) {
-          this.onKey(itemPath + '.' + k, this.pos - Buffer.byteLength(`"${escapeJson(v)}"`, 'utf-8'))
+          this.onKey(
+            itemPath + '.' + k,
+            this.pos - Buffer.byteLength(`"${escapeJson(v)}"`, 'utf-8')
+          )
         }
         first = false
         ctx.needsComma = true
@@ -184,12 +181,7 @@ export class StreamingJsonWriter {
     if (ctx.objectStarted) {
       this.write('}')
     } else if (!ctx.text && !hasChildren) {
-      this.write('{}')
-    }
-
-    if (this.onTagClose) {
-      const fullPath = makePath(this.stack, ctx.tagName)
-      this.onTagClose(fullPath, this.pos)
+      this.write('null')
     }
   }
 
@@ -207,14 +199,19 @@ export class StreamingJsonWriter {
     return this.pos
   }
 
-  getArrayCounts(): Map<string, number> {
-    return this._arrayCounts
-  }
-
   close(): void {
     if (this.rootOpened) {
       this.write('}')
     }
     closeSync(this.fd)
+  }
+
+  discard(): void {
+    closeSync(this.fd)
+    try {
+      unlinkSync(this.filePath)
+    } catch {
+      // temp file cleanup is best-effort
+    }
   }
 }

@@ -49,7 +49,7 @@ function buildExtensions(theme: 'light' | 'dark') {
 }
 
 export function XmlPreview() {
-  const { fileName, isParsing, parseProgress, parseError, isParsed, theme, openFileDialog, loadFile } = useApp()
+  const { filePath, fileName, isParsing, parseProgress, parseError, isParsed, theme, openFileDialog, loadFile } = useApp()
   const [isDragging, setIsDragging] = useState(false)
   const dropRef = useRef<HTMLDivElement>(null)
 
@@ -84,6 +84,7 @@ export function XmlPreview() {
   )
 
   const viewRef = useRef<EditorView | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const themeRef = useRef(theme)
   themeRef.current = theme
 
@@ -120,39 +121,23 @@ export function XmlPreview() {
     return () => { unsubXml() }
   }, [appendToEditor])
 
-  // Reset editor when a new file starts loading
-  const hasStartedRef = useRef(false)
   useEffect(() => {
-    if (isParsing || isParsed) {
-      hasStartedRef.current = true
-    } else {
-      hasStartedRef.current = false
-      if (viewRef.current) {
-        viewRef.current.destroy()
-        viewRef.current = null
-      }
-    }
-  }, [isParsing, isParsed])
+    viewRef.current?.destroy()
+    viewRef.current = null
 
-  const handleContainerRef = useCallback((el: HTMLDivElement | null) => {
-    if (el) {
-      if (viewRef.current) {
-        viewRef.current.destroy()
-        viewRef.current = null
-      }
-      const state = EditorState.create({
-        doc: '',
-        extensions: buildExtensions(themeRef.current),
-      })
-      const view = new EditorView({ state, parent: el })
-      viewRef.current = view
-    } else {
-      if (viewRef.current) {
-        viewRef.current.destroy()
-        viewRef.current = null
-      }
+    if (!containerRef.current) return
+
+    const state = EditorState.create({
+      doc: '',
+      extensions: buildExtensions(themeRef.current),
+    })
+    viewRef.current = new EditorView({ state, parent: containerRef.current })
+
+    return () => {
+      viewRef.current?.destroy()
+      viewRef.current = null
     }
-  }, [])
+  }, [filePath])
 
   const outerProps = {
     onDragOver: handleDragOver as any,
@@ -235,7 +220,7 @@ export function XmlPreview() {
           <p className='text-sm font-medium text-foreground'>Drop XML or GPX here</p>
         </div>
       )}
-      <div ref={handleContainerRef} className='min-h-0 flex-1 overflow-hidden' />
+      <div ref={containerRef} className='min-h-0 flex-1 overflow-hidden' />
     </div>
   )
 }

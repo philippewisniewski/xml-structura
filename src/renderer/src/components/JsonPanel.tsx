@@ -43,19 +43,20 @@ export function JsonPanel() {
 
   return (
     <div className='flex h-full min-h-0 flex-col'>
-      {viewMode === 'raw' ? (
-        <RawJsonPreview />
-      ) : (
-        <div className='flex-1 overflow-auto p-3 font-mono text-xs leading-5'>
-          {isParsing && parseProgress && parseProgress.phase === 'parsing' ? (
-            <div className='flex h-full items-center justify-center text-xs text-muted-foreground'>
-              Parsing...
-            </div>
-          ) : (
+      <div className={`flex-1 overflow-auto font-mono text-xs leading-5 ${viewMode === 'tree' ? '' : 'hidden'}`}>
+        {isParsing && parseProgress && parseProgress.phase === 'parsing' ? (
+          <div className='flex h-full items-center justify-center p-3 text-muted-foreground'>
+            Parsing...
+          </div>
+        ) : (
+          <div className='p-3'>
             <JsonTree />
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
+      <div className={`flex-1 overflow-auto ${viewMode === 'raw' ? '' : 'hidden'}`}>
+        <RawJsonPreview />
+      </div>
     </div>
   )
 }
