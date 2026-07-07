@@ -3,7 +3,6 @@ import { createReadStream, statSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { StreamingJsonWriter } from './streaming-json-writer'
-import type { TrackPoint } from './gpx-processor'
 
 export interface ParsedResult {
   filePath: string
@@ -12,18 +11,13 @@ export interface ParsedResult {
   index: Map<string, number>
 }
 
-export interface BeforeCloseContext {
-  appendRaw: (s: string) => void
-  getPos: () => number
-  addIndexEntry: (path: string, offset: number) => void
-}
-
 export interface ParserOptions {
   stripNamespaces?: boolean
-  onTrkpt?: (pt: TrackPoint) => void
   onProgress?: (bytesRead: number, totalBytes: number) => void
   onChunk?: (chunk: string) => void
-  onBeforeClose?: (ctx: BeforeCloseContext) => void
+  onOpenTag?: (name: string, attrs: Record<string, string>) => void
+  onText?: (text: string) => void
+  onCloseTag?: (name: string) => void
 }
 
 function stripName(name: string): string {
@@ -35,8 +29,6 @@ export function parseXml(
   options?: ParserOptions
 ): Promise<ParsedResult> {
   const strip = options?.stripNamespaces ?? false
-  const onTrkpt = options?.onTrkpt
-  const onBeforeClose = options?.onBeforeClose
 
   const tmpFile = join(tmpdir(), `structura-${Date.now()}.json`)
   const indexEntries: Array<{ path: string; offset: number }> = []
@@ -56,29 +48,11 @@ export function parseXml(
       return
     }
 
-    let currentTrkpt: { lat: string; lon: string; ele: string; time: string } | null = null
-    let eleDepth = 0
-    let timeDepth = 0
-
     const saxStream = sax.createStream(true, { xmlns: true, trim: true })
 
     saxStream.on('opentag', (node: sax.Tag | sax.QualifiedTag) => {
       const qualified = node as sax.QualifiedTag
       const tagName = strip && qualified.local ? qualified.local : node.name
-
-      if (onTrkpt && tagName === 'trkpt') {
-        const attrs = qualified.attributes || {}
-        const attrArr = Object.values(attrs)
-        currentTrkpt = {
-          lat: attrArr.find(a => (strip ? a.local === 'lat' : a.name === 'lat'))?.value ?? '',
-          lon: attrArr.find(a => (strip ? a.local === 'lon' : a.name === 'lon'))?.value ?? '',
-          ele: '',
-          time: ''
-        }
-      } else if (onTrkpt && (tagName === 'ele' || tagName === 'time')) {
-        if (tagName === 'ele') eleDepth++
-        if (tagName === 'time') timeDepth++
-      }
 
       const attrs: Record<string, string> = {}
       if (qualified.attributes) {
@@ -89,39 +63,20 @@ export function parseXml(
         }
       }
 
+      options?.onOpenTag?.(tagName, attrs)
       writer.openTag(tagName, attrs)
     })
 
     saxStream.on('text', (text: string) => {
+      options?.onText?.(text)
       writer.setText(text)
-
-      if (onTrkpt && currentTrkpt) {
-        if (eleDepth > 0) currentTrkpt.ele += text
-        if (timeDepth > 0) currentTrkpt.time += text
-      }
     })
 
     saxStream.on('closetag', (qualifiedName: string) => {
       const tagName = strip ? stripName(qualifiedName) : qualifiedName
 
-      if (onTrkpt) {
-        if (tagName === 'ele') eleDepth--
-        if (tagName === 'time') timeDepth--
-
-        if (tagName === 'trkpt' && currentTrkpt) {
-          const lat = parseFloat(currentTrkpt.lat)
-          const lon = parseFloat(currentTrkpt.lon)
-          const time = new Date(currentTrkpt.time)
-          const ele = currentTrkpt.ele ? parseFloat(currentTrkpt.ele) : null
-
-          if (!isNaN(lat) && !isNaN(lon) && !isNaN(time.getTime())) {
-            onTrkpt({ lat, lon, ele: ele !== null && !isNaN(ele) ? ele : null, time })
-          }
-          currentTrkpt = null
-        }
-      }
-
       writer.closeTag(tagName)
+      options?.onCloseTag?.(tagName)
     })
 
     saxStream.on('error', (err: Error) => {
@@ -130,16 +85,6 @@ export function parseXml(
     })
 
     saxStream.on('end', () => {
-      if (onBeforeClose) {
-        onBeforeClose({
-          appendRaw: (s) => writer.appendRaw(s),
-          getPos: () => writer.getPos(),
-          addIndexEntry: (path, offset) => {
-            indexEntries.push({ path, offset })
-          }
-        })
-      }
-
       writer.close()
 
       const index = new Map<string, number>()

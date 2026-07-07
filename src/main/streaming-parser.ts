@@ -1,4 +1,4 @@
-import { parseXml, type BeforeCloseContext } from './xml-parser'
+import { parseXml } from './xml-parser'
 import { createGpxProcessor } from './gpx-processor'
 import { DataStore } from './data-store'
 import type { ParseProgressData } from '../shared/types'
@@ -21,24 +21,56 @@ export async function parseStream(
       gpxProcessor = createGpxProcessor()
     }
 
+    let currentTrkpt: { lat: string; lon: string; ele: string; time: string } | null = null
+    let eleDepth = 0
+    let timeDepth = 0
+
     const result = await parseXml(filePath, {
       stripNamespaces: isGpx,
-      onTrkpt: gpxProcessor ? (pt) => gpxProcessor.processTrkpt(pt) : undefined,
       onProgress: (bytesRead, totalBytes) => {
         onProgress({ bytesRead, totalBytes, phase: 'parsing' })
       },
       onChunk: (chunk) => { onXmlChunk(chunk) },
-      onBeforeClose: gpxProcessor ? (ctx: BeforeCloseContext) => {
-        const stats = gpxProcessor.getStats()
-        DataStore.setGpxStats(stats)
-        const beforePos = ctx.getPos()
-        const rawText = `,\n  "_parsed": ${JSON.stringify(stats)}`
-        ctx.appendRaw(rawText)
-        const keyLen = Buffer.byteLength(',\n  "_parsed": ', 'utf-8')
-        ctx.addIndexEntry('$._parsed', beforePos + keyLen)
+      onOpenTag: gpxProcessor ? (tagName, attrs) => {
+        if (tagName === 'trkpt') {
+          currentTrkpt = {
+            lat: attrs['lat'] ?? '',
+            lon: attrs['lon'] ?? '',
+            ele: '',
+            time: ''
+          }
+        } else if (tagName === 'ele') {
+          eleDepth++
+        } else if (tagName === 'time') {
+          timeDepth++
+        }
+      } : undefined,
+      onText: gpxProcessor ? (text) => {
+        if (currentTrkpt) {
+          if (eleDepth > 0) currentTrkpt.ele += text
+          if (timeDepth > 0) currentTrkpt.time += text
+        }
+      } : undefined,
+      onCloseTag: gpxProcessor ? (tagName) => {
+        if (tagName === 'ele') eleDepth--
+        else if (tagName === 'time') timeDepth--
+        else if (tagName === 'trkpt' && currentTrkpt) {
+          const lat = parseFloat(currentTrkpt.lat)
+          const lon = parseFloat(currentTrkpt.lon)
+          const time = new Date(currentTrkpt.time)
+          const ele = currentTrkpt.ele ? parseFloat(currentTrkpt.ele) : null
+
+          if (!isNaN(lat) && !isNaN(lon) && !isNaN(time.getTime())) {
+            gpxProcessor.processTrkpt({ lat, lon, ele: ele !== null && !isNaN(ele) ? ele : null, time })
+          }
+          currentTrkpt = null
+        }
       } : undefined
     })
 
+    if (gpxProcessor) {
+      DataStore.setGpxStats(gpxProcessor.getStats())
+    }
     DataStore.setResult(result)
 
     const name = filePath.split('/').pop() || 'output'

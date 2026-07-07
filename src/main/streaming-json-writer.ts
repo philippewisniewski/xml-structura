@@ -191,14 +191,6 @@ export class StreamingJsonWriter {
     this.pos += written
   }
 
-  appendRaw(s: string): void {
-    this.write(s)
-  }
-
-  getPos(): number {
-    return this.pos
-  }
-
   close(): void {
     if (this.rootOpened) {
       this.write('}')
