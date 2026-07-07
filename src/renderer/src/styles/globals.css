@@ -61,4 +61,16 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
       'Helvetica Neue', Arial, sans-serif;
   }
+
+  .token-key { color: #a855f7; }
+  .token-string { color: #10b981; }
+  .token-number { color: #f59e0b; }
+  .token-boolean { color: #06b6d4; }
+  .token-null { color: #06b6d4; }
+  .token-punct { color: hsl(var(--muted-foreground)); }
+  .token-tag { color: #3b82f6; }
+  .token-attr { color: #ca8a04; }
+  .token-attr-value { color: #10b981; }
+  .token-comment { color: hsl(var(--muted-foreground)); font-style: italic; }
+  .token-line-number { color: hsl(var(--muted-foreground)); user-select: none; }
 }

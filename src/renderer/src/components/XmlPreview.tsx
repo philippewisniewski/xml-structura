@@ -1,57 +1,125 @@
-import { useRef, useEffect, useCallback, useState, type DragEvent } from 'react'
-import { EditorView, basicSetup } from 'codemirror'
-import { EditorState, Compartment } from '@codemirror/state'
-import { xml } from '@codemirror/lang-xml'
-import { oneDark } from '@codemirror/theme-one-dark'
+import { useEffect, useCallback, useRef, useState, type DragEvent } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { useApp } from '../App'
+import { tokenizeXml, renderTokens } from '../utils/tokenize'
 
-const themeCompartment = new Compartment()
+function formatXml(xml: string): string {
+  let formatted = ''
+  let indent = 0
+  xml = xml.replace(/>\s+</g, '><')
+  let i = 0
+  while (i < xml.length) {
+    if (xml[i] === '<') {
+      const end = xml.indexOf('>', i)
+      if (end === -1) break
+      const tag = xml.slice(i, end + 1)
+      if (tag.startsWith('<?') || tag.startsWith('<![CDATA[')) {
+        formatted += tag
+      } else if (tag.startsWith('</')) {
+        indent--
+        formatted += '\n' + '  '.repeat(Math.max(0, indent)) + tag
+      } else if (tag.endsWith('/>')) {
+        formatted += '\n' + '  '.repeat(indent) + tag
+      } else {
+        formatted += '\n' + '  '.repeat(indent) + tag
+        if (!tag.startsWith('<!')) indent++
+      }
+      i = end + 1
+    } else {
+      const nextTag = xml.indexOf('<', i)
+      const text = nextTag === -1 ? xml.slice(i) : xml.slice(i, nextTag)
+      if (text.trim()) {
+        formatted += text.trim()
+      }
+      i = nextTag !== -1 ? nextTag : xml.length
+    }
+  }
+  return formatted.trimStart()
+}
 
-function buildExtensions(theme: 'light' | 'dark') {
-  return [
-    basicSetup,
-    xml(),
-    EditorView.lineWrapping,
-    themeCompartment.of(theme === 'dark' ? oneDark : []),
-    EditorView.theme({
-      '&': {
-        height: '100%',
-        fontSize: '12px',
-      },
-      '.cm-scroller': {
-        fontFamily:
-          "'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', Consolas, monospace",
-      },
-      '.cm-line': {
-        padding: '0 2px',
-      },
-      '.cm-gutters': {
-        borderRight: '1px solid hsl(var(--border))',
-        backgroundColor: 'transparent',
-      },
-      '.cm-activeLineGutter': {
-        backgroundColor: 'hsl(var(--accent))',
-      },
-      '.cm-foldPlaceholder': {
-        backgroundColor: 'transparent',
-        border: 'none',
-        color: 'hsl(var(--muted-foreground))',
-      },
-      '.cm-matchingBracket': {
-        backgroundColor: 'hsl(var(--accent))',
-        outline: '1px solid hsl(var(--border))',
-      },
-      '.cm-selectionBackground': {
-        backgroundColor: 'hsl(var(--accent)) !important',
-      },
-    }),
-  ]
+function XmlContent() {
+  const { filePath, isParsed } = useApp()
+  const [content, setContent] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const parentRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isParsed || !filePath) return
+    setLoading(true)
+    window.api.readXmlFile(filePath).then(result => {
+      if (result) {
+        setContent(formatXml(result))
+      }
+      setLoading(false)
+    })
+  }, [isParsed, filePath])
+
+  const lines = content ? content.split('\n') : []
+
+  const virtualizer = useVirtualizer({
+    count: lines.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 20,
+    overscan: 10,
+  })
+
+  const virtualItems = virtualizer.getVirtualItems()
+
+  if (loading) {
+    return (
+      <div className='flex h-full items-center justify-center text-sm text-muted-foreground'>
+        Loading XML...
+      </div>
+    )
+  }
+
+  if (!content) {
+    return (
+      <div className='flex h-full items-center justify-center text-sm text-muted-foreground'>
+        No XML content available
+      </div>
+    )
+  }
+
+  return (
+    <div
+      ref={parentRef}
+      className='min-h-0 flex-1 overflow-auto font-mono text-xs'
+      style={{ backgroundColor: 'var(--background)', color: 'var(--foreground)' }}
+    >
+      <div
+        style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}
+      >
+        {virtualizer.getVirtualItems().map(virtualItem => (
+          <div
+            key={virtualItem.key}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: `${virtualItem.size}px`,
+              transform: `translateY(${virtualItem.start}px)`,
+            }}
+            className='flex whitespace-pre leading-5 hover:bg-[var(--accent)]/30'
+          >
+            <span className='w-[4ch] shrink-0 text-right text-muted-foreground select-none pr-3'>
+              {virtualItem.index + 1}
+            </span>
+            <span
+              className='flex-1'
+              dangerouslySetInnerHTML={{ __html: renderTokens(tokenizeXml(lines[virtualItem.index])) }}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export function XmlPreview() {
-  const { filePath, fileName, isParsing, parseProgress, parseError, isParsed, theme, openFileDialog, loadFile } = useApp()
+  const { filePath, isParsing, parseError, isParsed, openFileDialog, loadFile } = useApp()
   const [isDragging, setIsDragging] = useState(false)
-  const dropRef = useRef<HTMLDivElement>(null)
 
   const handleDragOver = useCallback((e: DragEvent) => {
     e.preventDefault()
@@ -83,62 +151,6 @@ export function XmlPreview() {
     [loadFile]
   )
 
-  const viewRef = useRef<EditorView | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const themeRef = useRef(theme)
-  themeRef.current = theme
-
-  const appendToEditor = useCallback((text: string) => {
-    if (!viewRef.current) return
-    viewRef.current.dispatch({
-      changes: { from: viewRef.current.state.doc.length, insert: text }
-    })
-  }, [])
-
-  const xmlAccumulator = useRef('')
-
-  useEffect(() => {
-    if (isParsing) {
-      xmlAccumulator.current = ''
-    }
-  }, [isParsing])
-
-  useEffect(() => {
-    if (!viewRef.current) return
-    viewRef.current.dispatch({
-      effects: themeCompartment.reconfigure(
-        theme === 'dark' ? oneDark : [],
-      ),
-    })
-  }, [theme])
-
-  useEffect(() => {
-    const unsubXml = window.api.on('xml-chunk', (chunk: unknown) => {
-      const text = String(chunk)
-      xmlAccumulator.current += text
-      appendToEditor(text)
-    })
-    return () => { unsubXml() }
-  }, [appendToEditor])
-
-  useEffect(() => {
-    viewRef.current?.destroy()
-    viewRef.current = null
-
-    if (!containerRef.current) return
-
-    const state = EditorState.create({
-      doc: '',
-      extensions: buildExtensions(themeRef.current),
-    })
-    viewRef.current = new EditorView({ state, parent: containerRef.current })
-
-    return () => {
-      viewRef.current?.destroy()
-      viewRef.current = null
-    }
-  }, [filePath])
-
   const outerProps = {
     onDragOver: handleDragOver as any,
     onDragLeave: handleDragLeave as any,
@@ -147,7 +159,7 @@ export function XmlPreview() {
 
   if (parseError) {
     return (
-      <div ref={dropRef} {...outerProps} className='flex h-full items-center justify-center p-6'>
+      <div {...outerProps} className='flex h-full items-center justify-center p-6'>
         <div className='text-center'>
           <p className='text-sm font-medium text-destructive'>Parse Error</p>
           <p className='mt-1 text-xs text-muted-foreground'>{parseError}</p>
@@ -158,11 +170,7 @@ export function XmlPreview() {
 
   if (!isParsed && !isParsing) {
     return (
-      <div
-        ref={dropRef}
-        {...outerProps}
-        className='flex h-full items-center justify-center p-6'
-      >
+      <div {...outerProps} className='flex h-full items-center justify-center p-6'>
         <div className='text-center'>
           <div
             className={`mx-auto mb-4 flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors ${
@@ -214,13 +222,13 @@ export function XmlPreview() {
   }
 
   return (
-    <div ref={dropRef} {...outerProps} className='relative flex h-full min-h-0 flex-col'>
+    <div className='relative flex h-full min-h-0 flex-col'>
       {isDragging && (
         <div className='pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-background/80'>
           <p className='text-sm font-medium text-foreground'>Drop XML or GPX here</p>
         </div>
       )}
-      <div ref={containerRef} className='min-h-0 flex-1 overflow-hidden' />
+      <XmlContent />
     </div>
   )
 }

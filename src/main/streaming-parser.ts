@@ -8,12 +8,11 @@ export async function parseStream(
   isGpx: boolean,
   callbacks: {
     onProgress: (data: ParseProgressData) => void
-    onXmlChunk: (chunk: string) => void
     onComplete: (result: { filePath: string; name: string; size: number }) => void
     onError: (error: string) => void
   }
 ): Promise<void> {
-  const { onProgress, onXmlChunk, onComplete, onError } = callbacks
+  const { onProgress, onComplete, onError } = callbacks
 
   try {
     let gpxProcessor: ReturnType<typeof createGpxProcessor> | null = null
@@ -30,7 +29,6 @@ export async function parseStream(
       onProgress: (bytesRead, totalBytes) => {
         onProgress({ bytesRead, totalBytes, phase: 'parsing' })
       },
-      onChunk: (chunk) => { onXmlChunk(chunk) },
       onOpenTag: gpxProcessor ? (tagName, attrs) => {
         if (tagName === 'trkpt') {
           currentTrkpt = {

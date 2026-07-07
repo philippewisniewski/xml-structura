@@ -13,6 +13,9 @@ const electronAPI = {
   streamFile: (filePath: string): Promise<{ name: string; size: number; success: boolean; error?: string }> =>
     ipcRenderer.invoke('stream-file', filePath),
 
+  readXmlFile: (path: string): Promise<string | null> =>
+    ipcRenderer.invoke('read-xml-file', path),
+
   readJsonFile: (filePath: string): Promise<string | null> =>
     ipcRenderer.invoke('read-json-file', filePath),
 

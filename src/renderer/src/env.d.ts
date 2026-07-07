@@ -15,6 +15,7 @@ interface Window {
     readFile: (path: string) => Promise<{ name: string; size: number } | null>
     fetchUrl: (url: string) => Promise<{ name: string; path?: string; size: number } | null>
     streamFile: (filePath: string) => Promise<{ name: string; size: number; success: boolean; error?: string }>
+    readXmlFile: (path: string) => Promise<string | null>
     readJsonFile: (filePath: string) => Promise<string | null>
     getJsonSummary: () => Promise<JsonSummary>
     jsonQuery: (path: string) => Promise<string | null>

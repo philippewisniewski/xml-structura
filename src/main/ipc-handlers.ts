@@ -1,7 +1,8 @@
 import { ipcMain, dialog, app, BrowserWindow } from 'electron'
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
+import { existsSync, writeFileSync, unlinkSync, createWriteStream, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { Readable } from 'stream'
 import { execFileSync, spawn } from 'child_process'
 import { DataStore } from './data-store'
 import { parseStream } from './streaming-parser'
@@ -100,14 +101,18 @@ export function registerIpcHandlers(): void {
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
-      const text = await response.text()
       const name = url.split('/').pop() || 'response.xml'
-
       const tmpFile = join(tmpdir(), `structura-url-${Date.now()}.xml`)
-      writeFileSync(tmpFile, text, 'utf-8')
+      const fileStream = createWriteStream(tmpFile)
+      const nodeReadable = Readable.fromWeb(response.body!)
+      await new Promise<void>((resolve, reject) => {
+        nodeReadable.pipe(fileStream)
+        fileStream.on('finish', () => resolve())
+        fileStream.on('error', reject)
+      })
       tempFiles.add(tmpFile)
 
-      return { name, path: tmpFile, size: Buffer.byteLength(text, 'utf-8') }
+      return { name, path: tmpFile, size: 0 }
     } catch (err) {
       const cause = (err as Error).cause
       let detail = (err as Error).message
@@ -126,15 +131,15 @@ export function registerIpcHandlers(): void {
     const win = BrowserWindow.fromWebContents(event.sender)
 
     return new Promise((resolve) => {
+      let lastPct = -1
       parseStream(filePath, isGpx, {
         onProgress: (data: ParseProgressData) => {
           if (win && !win.isDestroyed()) {
-            event.sender.send('parse-progress', data)
-          }
-        },
-        onXmlChunk: (chunk: string) => {
-          if (win && !win.isDestroyed()) {
-            event.sender.send('xml-chunk', chunk)
+            const pct = Math.floor((data.bytesRead / data.totalBytes) * 100)
+            if (pct > lastPct || data.bytesRead >= data.totalBytes) {
+              lastPct = pct
+              event.sender.send('parse-progress', data)
+            }
           }
         },
         onComplete: (result: { filePath: string; name: string; size: number }) => {
@@ -152,6 +157,14 @@ export function registerIpcHandlers(): void {
         }
       })
     })
+  })
+
+  ipcMain.handle('read-xml-file', async (_, filePath: string): Promise<string | null> => {
+    try {
+      return readFileSync(filePath, 'utf-8')
+    } catch {
+      return null
+    }
   })
 
   ipcMain.handle('read-json-file', async (_, jsonPath: string): Promise<string | null> => {
