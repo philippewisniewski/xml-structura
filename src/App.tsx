@@ -4,7 +4,6 @@ import { Toolbar } from './components/Toolbar'
 import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
 import { DropZone } from './components/DropZone'
-import { XmlView } from './views/XmlView'
 import { TreeView } from './views/TreeView'
 import { JsonView, treeToObject } from './views/JsonView'
 import { ResizableHandle } from './components/ResizableHandle'
@@ -98,47 +97,24 @@ export default function App() {
           <Sidebar recentFiles={state.recentFiles} onSelect={handleRecentFile} />
         )}
         <div className="flex flex-1 min-w-0">
-          <XmlView file={state.file} />
+          <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+            {state.tree ? (
+              <TreeView tree={state.tree} />
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-600 text-xs">
+                Load an XML file to view its structure
+              </div>
+            )}
+          </div>
           <ResizableHandle />
           <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-            <div className="flex h-7 items-center justify-between border-b border-gray-700/50 px-3">
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => dispatch({ type: 'SET_VIEW', view: 'tree' })}
-                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                    state.view === 'tree' ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                  }`}
-                >
-                  Tree
-                </button>
-                <button
-                  onClick={() => dispatch({ type: 'SET_VIEW', view: 'json' })}
-                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                    state.view === 'json' ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                  }`}
-                >
-                  Raw
-                </button>
+            {state.tree ? (
+              <JsonView tree={state.tree} />
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-600 text-xs">
+                Load an XML file to view its structure
               </div>
-              <div className="flex items-center gap-1">
-                {state.gpxMetrics && (
-                  <span className="text-[11px] text-gray-500">
-                    {state.gpxMetrics.totalDistanceKm.toFixed(1)} km
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              {state.view === 'tree' && state.tree ? (
-                <TreeView tree={state.tree} />
-              ) : state.view === 'json' && state.tree ? (
-                <JsonView tree={state.tree} />
-              ) : (
-                <div className="flex items-center justify-center h-full text-gray-600 text-xs">
-                  Load an XML file to view its structure
-                </div>
-              )}
-            </div>
+            )}
           </div>
         </div>
       </div>
@@ -147,6 +123,7 @@ export default function App() {
         progress={state.progress}
         error={state.error}
         fileName={state.file?.name ?? ''}
+        gpxMetrics={state.gpxMetrics}
       />
       <DropZone onFile={handleFile} />
       <input

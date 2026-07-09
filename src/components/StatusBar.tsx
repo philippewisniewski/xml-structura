@@ -1,13 +1,15 @@
 import type { Status } from '../hooks/useParser'
+import type { GpxMetrics } from '../parser/gpx-extractor'
 
 interface StatusBarProps {
   status: Status
   progress: number
   error: string | null
   fileName: string
+  gpxMetrics?: GpxMetrics | null
 }
 
-export function StatusBar({ status, progress, error, fileName }: StatusBarProps) {
+export function StatusBar({ status, progress, error, fileName, gpxMetrics }: StatusBarProps) {
   const statusText = status === 'parsing'
     ? `Parsing... ${progress}%`
     : status === 'done'
@@ -19,6 +21,12 @@ export function StatusBar({ status, progress, error, fileName }: StatusBarProps)
   return (
     <div className="flex items-center gap-2 border-t border-gray-700/50 bg-gray-900/60 px-3 py-1 text-xs text-gray-400 shrink-0">
       <span>{statusText}</span>
+      {gpxMetrics && (
+        <>
+          <div className="h-4 w-px bg-gray-600" />
+          <span className="text-gray-500">{gpxMetrics.totalDistanceKm.toFixed(1)} km</span>
+        </>
+      )}
       {status === 'parsing' && (
         <>
           <div className="flex-1" />

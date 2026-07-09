@@ -6,7 +6,6 @@ import { saveRecentFile, loadRecentFiles } from './use-recent-files'
 import type { RecentFile } from './use-recent-files'
 
 export type Status = 'idle' | 'parsing' | 'done' | 'error'
-export type ViewMode = 'tree' | 'json'
 export type Theme = 'dark' | 'light'
 
 export interface State {
@@ -15,7 +14,6 @@ export interface State {
   status: Status
   error: string | null
   progress: number
-  view: ViewMode
   theme: Theme
   sidebarOpen: boolean
   recentFiles: RecentFile[]
@@ -27,7 +25,6 @@ export type Action =
   | { type: 'PROGRESS'; progress: number }
   | { type: 'COMPLETE'; tree: TreeNode; gpxMetrics: GpxMetrics | null }
   | { type: 'ERROR'; error: string }
-  | { type: 'SET_VIEW'; view: ViewMode }
   | { type: 'TOGGLE_THEME' }
   | { type: 'TOGGLE_SIDEBAR' }
   | { type: 'SET_RECENT_FILES'; files: RecentFile[] }
@@ -42,7 +39,6 @@ function initState(): State {
     status: 'idle',
     error: null,
     progress: 0,
-    view: 'tree',
     theme: savedTheme,
     sidebarOpen: true,
     recentFiles: loadRecentFiles(),
@@ -60,8 +56,6 @@ function appReducer(state: State, action: Action): State {
       return { ...state, tree: action.tree, status: 'done', progress: 100, gpxMetrics: action.gpxMetrics }
     case 'ERROR':
       return { ...state, status: 'error', error: action.error }
-    case 'SET_VIEW':
-      return { ...state, view: action.view }
     case 'TOGGLE_THEME': {
       const newTheme = state.theme === 'dark' ? 'light' : 'dark'
       localStorage.setItem('xml-structura-theme', newTheme)
