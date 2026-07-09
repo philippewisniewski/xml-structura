@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.gray.700') transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: theme('colors.gray.700');
+    border-radius: 3px;
+  }
+
+  html.light {
+    --bg-primary: theme('colors.gray.50');
+    --bg-secondary: theme('colors.gray.100');
+    --text-primary: theme('colors.gray.900');
+    --text-secondary: theme('colors.gray.600');
+    --border: theme('colors.gray.200');
+  }
+
+  html.dark {
+    --bg-primary: theme('colors.gray.950');
+    --bg-secondary: theme('colors.gray.900');
+    --text-primary: theme('colors.gray.100');
+    --text-secondary: theme('colors.gray.400');
+    --border: theme('colors.gray.700/50');
+  }
+}
+
+@layer components {
+  .tree-summary::marker {
+    color: theme('colors.gray.600');
+  }
+  .tree-summary::-webkit-details-marker {
+    color: theme('colors.gray.600');
+  }
+}

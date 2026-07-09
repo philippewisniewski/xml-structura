@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>XML Structura</title>
+    <link rel="icon" type="image/png" href="resources/icon.png" />
+  </head>
+  <body class="h-screen overflow-hidden bg-gray-950 text-gray-100 font-mono text-sm">
+    <div id="app" class="h-screen flex flex-col">
+      <header id="toolbar" class="shrink-0 border-b border-gray-700/50 bg-gray-900/80 backdrop-blur-sm"></header>
+      <div class="flex flex-1 min-h-0">
+        <aside id="sidebar" class="w-56 shrink-0 border-r border-gray-700/50 bg-gray-900/40 hidden"></aside>
+        <main class="flex-1 flex min-w-0">
+          <section id="panel-xml" class="flex-1 min-w-0 border-r border-gray-700/30 flex flex-col overflow-hidden">
+            <div id="panel-xml-content" class="flex-1 overflow-hidden"></div>
+          </section>
+          <section id="panel-output" class="flex-1 min-w-0 flex flex-col overflow-hidden">
+            <div id="panel-output-content" class="flex-1 overflow-hidden"></div>
+          </section>
+        </main>
+      </div>
+      <footer id="status-bar" class="shrink-0 border-t border-gray-700/50 bg-gray-900/60 px-3 py-1 text-xs text-gray-400"></footer>
+    </div>
+    <div id="drop-zone" class="fixed inset-0 z-50 hidden pointer-events-none"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
