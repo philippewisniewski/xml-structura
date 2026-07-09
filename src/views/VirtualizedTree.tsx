@@ -81,8 +81,8 @@ export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
   const slice = rows.slice(first, last)
 
   return (
-    <div>
-      <div className="flex gap-2 mb-1 text-[11px]">
+    <div className="h-full flex flex-col">
+      <div className="flex gap-2 mb-1 text-[11px] shrink-0">
         <button className="px-2 py-0.5 rounded bg-gray-700/40 hover:bg-gray-700/70" onClick={expandAll}>
           Expand all
         </button>
@@ -93,11 +93,11 @@ export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
       <div
         ref={ref}
         onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
-        className="overflow-auto max-h-[70vh] bg-gray-900/40 border border-gray-700/40 rounded"
+        className="flex-1 min-h-0 overflow-auto bg-gray-900/40 border border-gray-700/40 rounded"
       >
         <div style={{ height: rows.length * LINE_HEIGHT, position: 'relative' }}>
-          <div style={{ position: 'absolute', top: first * LINE_HEIGHT, left: 0, right: 0 }}>
-            <pre className="p-3 text-xs leading-[20px] m-0">
+          <div style={{ position: 'absolute', top: first * LINE_HEIGHT, left: 0, right: 0, paddingLeft: 12, paddingRight: 12 }}>
+            <pre className="text-xs leading-[20px] m-0">
               <code>
                 {slice.map((row) => (
                   <div

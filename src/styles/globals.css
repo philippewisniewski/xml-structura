@@ -38,29 +38,4 @@
 }
 
 @layer components {
-  .tree-summary::marker {
-    color: theme('colors.gray.600');
-  }
-  .tree-summary::-webkit-details-marker {
-    color: theme('colors.gray.600');
-  }
-  /* Smoothly reveal a node's children when it is expanded. */
-  .tree-node > *:not(summary) {
-    animation: tree-reveal 120ms ease-out;
-  }
-  @keyframes tree-reveal {
-    from {
-      opacity: 0;
-      transform: translateY(-2px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .tree-node > *:not(summary) {
-      animation: none;
-    }
-  }
 }
