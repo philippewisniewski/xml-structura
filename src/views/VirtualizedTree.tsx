@@ -11,33 +11,49 @@ interface Row {
   node: TreeNode
   hasChildren: boolean
   collapsed: boolean
+  type: 'open' | 'close'
 }
 
 // Flatten the root children into visible rows. `collapsed` holds positional
 // path keys ("parent.i"), so same-tag siblings never share a key (this is the
 // exact bug from issue #23, avoided by using index-based paths).
+// For every expanded container node we also emit a closing </tag> row right
+// after its children, so the view mirrors the literal input XML structure.
 function flatten(roots: TreeNode[], collapsed: Set<string>, out: Row[]): void {
   const walk = (nodes: TreeNode[], parentKey: string, depth: number) => {
     nodes.forEach((node, i) => {
       const key = `${parentKey}.${i}`
       const hasChildren = node.children.length > 0
       const isCollapsed = collapsed.has(key)
-      out.push({ key, depth, node, hasChildren, collapsed: isCollapsed })
-      if (hasChildren && !isCollapsed) walk(node.children, key, depth + 1)
+      out.push({ key, depth, node, hasChildren, collapsed: isCollapsed, type: 'open' })
+      if (hasChildren) {
+        if (!isCollapsed) {
+          walk(node.children, key, depth + 1)
+          out.push({ key: `${key}#close`, depth, node, hasChildren: false, collapsed: false, type: 'close' })
+        }
+      }
     })
   }
   walk(roots, 'r', 0)
 }
 
-// Build the raw XML for a single row (opening tag; the text/children render as
-// later rows when expanded).
+// Build the raw XML for an opening row. Leaf/text nodes carry their own closing
+// text on the same line; container nodes open with '>' and get a separate
+// closing row (see rowClose) once their children are listed.
 function rowXml(depth: number, node: TreeNode): string {
   const pad = '  '.repeat(depth)
   const attrs = Object.entries(node.attributes)
     .map(([k, v]) => ` ${k}="${v}"`)
     .join('')
-  const suffix = node.children.length > 0 || node.text == null ? '>' : `>${node.text}</${node.tag}>`
+  let suffix: string
+  if (node.children.length > 0) suffix = '>'
+  else if (node.text != null) suffix = `>${node.text}</${node.tag}>`
+  else suffix = `></${node.tag}>`
   return `${pad}<${node.tag}${attrs}${suffix}`
+}
+
+function rowClose(depth: number, node: TreeNode): string {
+  return `${'  '.repeat(depth)}</${node.tag}>`
 }
 
 export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
@@ -106,7 +122,7 @@ export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
                     className="hover:bg-gray-700/20"
                   >
                     <span className="text-gray-600 select-none mr-2 shrink-0" style={{ width: '2ch' }}>
-                      {row.hasChildren ? (
+                      {row.type === 'open' && row.hasChildren ? (
                         <span
                           className="cursor-pointer"
                           onClick={() => toggle(row.key)}
@@ -119,7 +135,11 @@ export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
                     </span>
                     <span
                       className="whitespace-pre"
-                      dangerouslySetInnerHTML={{ __html: highlightXmlLine(rowXml(row.depth, row.node)) }}
+                      dangerouslySetInnerHTML={{
+                        __html: highlightXmlLine(
+                          row.type === 'close' ? rowClose(row.depth, row.node) : rowXml(row.depth, row.node)
+                        )
+                      }}
                     />
                   </div>
                 ))}
