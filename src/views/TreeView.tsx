@@ -1,10 +1,8 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import type { TreeNode } from '../parser/tree-builder'
 
 interface TreeViewProps {
   tree: TreeNode
-  expandedPaths: Set<string>
-  onToggle: (path: string) => void
 }
 
 function renderAttrs(attrs: Record<string, string>) {
@@ -22,20 +20,21 @@ function renderAttrs(attrs: Record<string, string>) {
 interface TreeNodeProps {
   node: TreeNode
   depth: number
-  path: string
-  expandedPaths: Set<string>
-  onToggle: (path: string) => void
 }
 
 const TreeNodeComponent = memo(function TreeNodeComponent({
-  node, depth, path, expandedPaths, onToggle
+  node, depth
 }: TreeNodeProps) {
-  const nodePath = `${path}/${node.tag}`
-  const hasChildren = node.children.length > 0
-  const longText = node.text && node.text.length > 100
-  const isOpen = expandedPaths.has(nodePath) || depth < 3
+  // Each node owns its own open state. Toggling one node only re-renders
+  // that node's subtree — siblings are untouched, so there is no shared
+  // path-key to collide and no global re-render on every toggle.
+  const [open, setOpen] = useState(depth < 3)
 
-  if (!hasChildren && !longText) {
+  const hasChildren = node.children.length > 0
+  const hasLongText = !!node.text && node.text.length > 100
+  const isExpandable = hasChildren || hasLongText
+
+  if (!isExpandable) {
     return (
       <div className="tree-leaf ml-4">
         <span className="text-blue-400">&lt;</span>
@@ -51,46 +50,40 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
   }
 
   return (
-    <details open={isOpen} className="tree-node group">
-      <summary
-        className="tree-summary cursor-pointer hover:bg-gray-700/30 rounded px-1 -ml-1 select-none"
-        onClick={(e) => { e.preventDefault(); onToggle(nodePath) }}
-      >
+    <details
+      open={open}
+      className="tree-node group"
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+    >
+      <summary className="tree-summary cursor-pointer hover:bg-gray-700/30 rounded px-1 -ml-1 select-none">
         <span className="text-blue-400">&lt;</span>
         <span className="text-emerald-300">{node.tag}</span>
         {renderAttrs(node.attributes)}
         <span className="text-blue-400">&gt;</span>
-        {node.text && node.text.length <= 100 && <span className="text-gray-300">{node.text}</span>}
+        {hasChildren && (
+          <span className="ml-1 text-[10px] text-gray-500">
+            {node.children.length}
+          </span>
+        )}
+        {node.text && node.text.length <= 100 && (
+          <span className="text-gray-300">{node.text}</span>
+        )}
       </summary>
       {node.text && node.text.length > 100 && (
         <div className="tree-text ml-4 text-gray-300 whitespace-pre-wrap">{node.text}</div>
       )}
-      {isOpen && node.children.map((child, i) => (
-        <TreeNodeComponent
-          key={`${nodePath}-${i}`}
-          node={child}
-          depth={depth + 1}
-          path={nodePath}
-          expandedPaths={expandedPaths}
-          onToggle={onToggle}
-        />
+      {node.children.map((child, i) => (
+        <TreeNodeComponent key={i} node={child} depth={depth + 1} />
       ))}
     </details>
   )
 })
 
-export function TreeView({ tree, expandedPaths, onToggle }: TreeViewProps) {
+export function TreeView({ tree }: TreeViewProps) {
   return (
     <div className="p-3 overflow-auto h-full text-xs leading-relaxed space-y-0.5">
       {tree.children.map((child, i) => (
-        <TreeNodeComponent
-          key={`root-${i}`}
-          node={child}
-          depth={0}
-          path="#root"
-          expandedPaths={expandedPaths}
-          onToggle={onToggle}
-        />
+        <TreeNodeComponent key={`root-${i}`} node={child} depth={0} />
       ))}
     </div>
   )

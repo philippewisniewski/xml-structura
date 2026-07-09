@@ -19,7 +19,6 @@ export interface State {
   theme: Theme
   sidebarOpen: boolean
   recentFiles: RecentFile[]
-  expandedPaths: Set<string>
   gpxMetrics: GpxMetrics | null
 }
 
@@ -31,7 +30,6 @@ export type Action =
   | { type: 'SET_VIEW'; view: ViewMode }
   | { type: 'TOGGLE_THEME' }
   | { type: 'TOGGLE_SIDEBAR' }
-  | { type: 'TOGGLE_NODE'; path: string }
   | { type: 'SET_RECENT_FILES'; files: RecentFile[] }
 
 const FILE_EXT_RE = /\.(xml|gpx|svg|rss|atom|xhtml)$/i
@@ -48,7 +46,6 @@ function initState(): State {
     theme: savedTheme,
     sidebarOpen: true,
     recentFiles: loadRecentFiles(),
-    expandedPaths: new Set(),
     gpxMetrics: null,
   }
 }
@@ -72,15 +69,6 @@ function appReducer(state: State, action: Action): State {
     }
     case 'TOGGLE_SIDEBAR':
       return { ...state, sidebarOpen: !state.sidebarOpen }
-    case 'TOGGLE_NODE': {
-      const next = new Set(state.expandedPaths)
-      if (next.has(action.path)) {
-        next.delete(action.path)
-      } else {
-        next.add(action.path)
-      }
-      return { ...state, expandedPaths: next }
-    }
     case 'SET_RECENT_FILES':
       return { ...state, recentFiles: action.files }
     default:

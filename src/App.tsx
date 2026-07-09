@@ -81,10 +81,6 @@ export default function App() {
     URL.revokeObjectURL(url)
   }, [state.tree, state.file])
 
-  const handleToggle = useCallback((path: string) => {
-    dispatch({ type: 'TOGGLE_NODE', path })
-  }, [dispatch])
-
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-gray-950 text-gray-100 font-mono text-sm">
       <Toolbar
@@ -134,7 +130,7 @@ export default function App() {
             </div>
             <div className="flex-1 overflow-hidden">
               {state.view === 'tree' && state.tree ? (
-                <TreeView tree={state.tree} expandedPaths={state.expandedPaths} onToggle={handleToggle} />
+                <TreeView tree={state.tree} />
               ) : state.view === 'json' && state.tree ? (
                 <JsonView tree={state.tree} />
               ) : (
