@@ -1,5 +1,6 @@
 import { memo, useMemo, useState } from 'react'
 import type { TreeNode } from '../parser/tree-builder'
+import { VirtualizedLines } from './VirtualizedLines'
 
 // Above this many children a node is not auto-expanded, so we don't mount
 // tens of thousands of DOM nodes (e.g. a <trkseg> with 20k <trkpt>) on load.
@@ -9,26 +10,34 @@ interface TreeViewProps {
   tree: TreeNode
 }
 
-// Serialize a node (and its descendants) back to XML so a node with a huge
-// child list can be shown as a single `<pre>` (one DOM node) instead of
-// instantiating tens of thousands of components, which blocks the main
-// thread and janks when the node is expanded.
-function serialize(node: TreeNode, indent: number): string {
+// Serialize a node (and its descendants) back to pretty-printed XML lines so
+// a node with a huge child list can be shown as colored, virtualized XML
+// instead of instantiating tens of thousands of components (which blocks the
+// main thread and janks when the node is expanded). Returns one string per
+// line.
+function serializeLines(node: TreeNode, indent: number, out: string[]): void {
   const pad = '  '.repeat(indent)
   const attrs = Object.entries(node.attributes)
     .map(([k, v]) => ` ${k}="${v}"`)
     .join('')
   const open = `${pad}<${node.tag}${attrs}>`
   if (node.children.length === 0 && node.text != null) {
-    return `${open}${node.text}</${node.tag}>`
+    out.push(`${open}${node.text}</${node.tag}>`)
+    return
   }
   if (node.children.length === 0) {
-    return `${open}</${node.tag}>`
+    out.push(`${open}</${node.tag}>`)
+    return
   }
-  const inner = node.children
-    .map((c) => serialize(c, indent + 1))
-    .join('')
-  return `${open}\n${inner}\n${pad}</${node.tag}>`
+  out.push(open)
+  for (const child of node.children) serializeLines(child, indent + 1, out)
+  out.push(`${pad}</${node.tag}>`)
+}
+
+function childrenToLines(node: TreeNode): string[] {
+  const lines: string[] = []
+  for (const child of node.children) serializeLines(child, 1, lines)
+  return lines
 }
 
 function renderAttrs(attrs: Record<string, string>) {
@@ -113,18 +122,15 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
 })
 
 // A node with a very large child list (e.g. <trkseg> with 20k <trkpt>) is
-// shown as a single serialized `<pre>` so expanding it costs one DOM node
-// instead of tens of thousands of components that block the main thread.
-// Memoized so the (potentially large) string is only built once.
+// shown as colored, virtualized XML so expanding it stays smooth instead of
+// instantiating tens of thousands of components that block the main thread.
+// Memoized so the line array is only built once.
 const HeavyChildList = memo(function HeavyChildList({ node }: { node: TreeNode }) {
-  const text = useMemo(
-    () => node.children.map((child) => serialize(child, 1)).join('\n'),
-    [node]
-  )
+  const lines = useMemo(() => childrenToLines(node), [node])
   return (
-    <pre className="ml-4 mt-1 text-gray-300 whitespace-pre text-[11px] leading-relaxed max-h-[70vh] overflow-auto">
-      {text}
-    </pre>
+    <div className="ml-4 mt-1">
+      <VirtualizedLines lines={lines} />
+    </div>
   )
 })
 

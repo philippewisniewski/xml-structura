@@ -1,21 +1,10 @@
 import { useRef, useState, useEffect, useCallback, memo } from 'react'
+import { highlightXmlLine } from './highlightXml'
 
 const CHUNK_SIZE = 0x100000
 const AVG_CHARS_PER_LINE = 80
 const LINE_HEIGHT = 20
 const OVERSCAN = 25
-
-function highlightXmlLine(line: string): string {
-  let h = line
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-  h = h.replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="text-gray-600 italic">$1</span>')
-  h = h.replace(/(&lt;\/?)([\w:-]+)/g, '$1<span class="text-emerald-300">$2</span>')
-  h = h.replace(/( [\w:-]+)(=)(&quot;.*?&quot;)/g, '<span class="text-purple-400">$1</span>$2<span class="text-amber-300">$3</span>')
-  return h
-}
 
 function readSlice(file: File, start: number, end: number): Promise<string> {
   return new Promise((resolve, reject) => {
