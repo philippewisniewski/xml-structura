@@ -1,6 +1,10 @@
 import { memo, useState } from 'react'
 import type { TreeNode } from '../parser/tree-builder'
 
+// Above this many children a node is not auto-expanded, so we don't mount
+// tens of thousands of DOM nodes (e.g. a <trkseg> with 20k <trkpt>) on load.
+const LARGE_CHILD_THRESHOLD = 500
+
 interface TreeViewProps {
   tree: TreeNode
 }
@@ -28,7 +32,8 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
   // Each node owns its own open state. Toggling one node only re-renders
   // that node's subtree — siblings are untouched, so there is no shared
   // path-key to collide and no global re-render on every toggle.
-  const [open, setOpen] = useState(depth < 3)
+  // Auto-expand shallow levels, but never a node with a huge child list.
+  const [open, setOpen] = useState(depth < 3 && node.children.length <= LARGE_CHILD_THRESHOLD)
 
   const hasChildren = node.children.length > 0
   const hasLongText = !!node.text && node.text.length > 100
@@ -72,7 +77,7 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
       {node.text && node.text.length > 100 && (
         <div className="tree-text ml-4 text-gray-300 whitespace-pre-wrap">{node.text}</div>
       )}
-      {node.children.map((child, i) => (
+      {open && node.children.map((child, i) => (
         <TreeNodeComponent key={i} node={child} depth={depth + 1} />
       ))}
     </details>
