@@ -1,11 +1,7 @@
+import { useMemo } from 'react'
 import type { TreeNode } from '../parser/tree-builder'
 
-export function renderJson(tree: TreeNode): string {
-  const obj = treeToObject(tree)
-  return JSON.stringify(obj, null, 2)
-}
-
-function treeToObject(node: TreeNode): unknown {
+export function treeToObject(node: TreeNode): unknown {
   if (node.tag === '#root') {
     if (node.children.length === 1) {
       return buildNode(node.children[0])
@@ -35,7 +31,7 @@ function buildNode(node: TreeNode): unknown {
       if (!Array.isArray(result[child.tag])) {
         result[child.tag] = [result[child.tag]]
       }
-      ;(result[child.tag] as unknown[]).push(buildNode(child))
+      (result[child.tag] as unknown[]).push(buildNode(child))
     } else {
       result[child.tag] = buildNode(child)
     }
@@ -46,4 +42,21 @@ function buildNode(node: TreeNode): unknown {
   }
 
   return result
+}
+
+interface JsonViewProps {
+  tree: TreeNode
+}
+
+export function JsonView({ tree }: JsonViewProps) {
+  const json = useMemo(() => {
+    const obj = treeToObject(tree)
+    return JSON.stringify(obj, null, 2)
+  }, [tree])
+
+  return (
+    <pre className="p-3 overflow-auto h-full text-xs leading-relaxed">
+      <code>{json}</code>
+    </pre>
+  )
 }
