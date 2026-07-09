@@ -1,4 +1,4 @@
-import { memo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import type { TreeNode } from '../parser/tree-builder'
 
 // Above this many children a node is not auto-expanded, so we don't mount
@@ -7,6 +7,28 @@ const LARGE_CHILD_THRESHOLD = 500
 
 interface TreeViewProps {
   tree: TreeNode
+}
+
+// Serialize a node (and its descendants) back to XML so a node with a huge
+// child list can be shown as a single `<pre>` (one DOM node) instead of
+// instantiating tens of thousands of components, which blocks the main
+// thread and janks when the node is expanded.
+function serialize(node: TreeNode, indent: number): string {
+  const pad = '  '.repeat(indent)
+  const attrs = Object.entries(node.attributes)
+    .map(([k, v]) => ` ${k}="${v}"`)
+    .join('')
+  const open = `${pad}<${node.tag}${attrs}>`
+  if (node.children.length === 0 && node.text != null) {
+    return `${open}${node.text}</${node.tag}>`
+  }
+  if (node.children.length === 0) {
+    return `${open}</${node.tag}>`
+  }
+  const inner = node.children
+    .map((c) => serialize(c, indent + 1))
+    .join('')
+  return `${open}\n${inner}\n${pad}</${node.tag}>`
 }
 
 function renderAttrs(attrs: Record<string, string>) {
@@ -77,10 +99,32 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
       {node.text && node.text.length > 100 && (
         <div className="tree-text ml-4 text-gray-300 whitespace-pre-wrap">{node.text}</div>
       )}
-      {open && node.children.map((child, i) => (
-        <TreeNodeComponent key={i} node={child} depth={depth + 1} />
-      ))}
+      {open && (
+        node.children.length > LARGE_CHILD_THRESHOLD ? (
+          <HeavyChildList node={node} />
+        ) : (
+          node.children.map((child, i) => (
+            <TreeNodeComponent key={i} node={child} depth={depth + 1} />
+          ))
+        )
+      )}
     </details>
+  )
+})
+
+// A node with a very large child list (e.g. <trkseg> with 20k <trkpt>) is
+// shown as a single serialized `<pre>` so expanding it costs one DOM node
+// instead of tens of thousands of components that block the main thread.
+// Memoized so the (potentially large) string is only built once.
+const HeavyChildList = memo(function HeavyChildList({ node }: { node: TreeNode }) {
+  const text = useMemo(
+    () => node.children.map((child) => serialize(child, 1)).join('\n'),
+    [node]
+  )
+  return (
+    <pre className="ml-4 mt-1 text-gray-300 whitespace-pre text-[11px] leading-relaxed max-h-[70vh] overflow-auto">
+      {text}
+    </pre>
   )
 })
 
