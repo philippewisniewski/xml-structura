@@ -1,11 +1,12 @@
 import { memo, useMemo, useRef, useState } from 'react'
 import type { TreeNode } from '../parser/tree-builder'
 import { highlightXmlLine } from './highlightXml'
+import { GutterRow, GutterNumbers } from '../components/LineGutter'
 
 const LINE_HEIGHT = 20
 const OVERSCAN = 25
 
-interface Row {
+export interface Row {
   key: string
   depth: number
   node: TreeNode
@@ -112,39 +113,31 @@ export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
         className="flex-1 min-h-0 overflow-auto bg-gray-900/40 border border-gray-700/40 rounded"
       >
         <div style={{ height: rows.length * LINE_HEIGHT, position: 'relative' }}>
-          <div style={{ position: 'absolute', top: first * LINE_HEIGHT, left: 0, right: 0, paddingLeft: 12, paddingRight: 12 }}>
-            <pre className="text-xs leading-[20px] m-0">
-              <code>
-                {slice.map((row) => (
-                  <div
-                    key={row.key}
-                    style={{ display: 'flex', height: LINE_HEIGHT }}
-                    className="hover:bg-gray-700/20"
-                  >
-                    <span className="text-gray-600 select-none mr-2 shrink-0" style={{ width: '2ch' }}>
-                      {row.type === 'open' && row.hasChildren ? (
-                        <span
-                          className="cursor-pointer"
-                          onClick={() => toggle(row.key)}
-                        >
-                          {row.collapsed ? '▸' : '▾'}
-                        </span>
-                      ) : (
-                        '·'
-                      )}
-                    </span>
-                    <span
-                      className="whitespace-pre"
-                      dangerouslySetInnerHTML={{
-                        __html: highlightXmlLine(
-                          row.type === 'close' ? rowClose(row.depth, row.node) : rowXml(row.depth, row.node)
-                        )
-                      }}
-                    />
-                  </div>
-                ))}
-              </code>
-            </pre>
+          <div style={{ position: 'absolute', top: first * LINE_HEIGHT, left: 0, right: 0 }}>
+            <div className="flex">
+              <GutterNumbers slice={slice} first={first} />
+              <pre className="text-xs leading-[20px] m-0 flex-1 pl-3">
+                <code>
+                  {slice.map((row, i) => (
+                    <div
+                      key={row.key}
+                      style={{ display: 'flex', height: LINE_HEIGHT }}
+                      className="hover:bg-gray-700/20"
+                    >
+                      <GutterRow row={row} lineNumber={first + i + 1} onToggle={toggle} />
+                      <span
+                        className="whitespace-pre"
+                        dangerouslySetInnerHTML={{
+                          __html: highlightXmlLine(
+                            row.type === 'close' ? rowClose(row.depth, row.node) : rowXml(row.depth, row.node)
+                          )
+                        }}
+                      />
+                    </div>
+                  ))}
+                </code>
+              </pre>
+            </div>
           </div>
         </div>
       </div>
