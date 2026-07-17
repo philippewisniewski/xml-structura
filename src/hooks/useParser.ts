@@ -16,6 +16,7 @@ export interface State {
   progress: number
   theme: Theme
   sidebarOpen: boolean
+  preserveRaw: boolean
   recentFiles: RecentFile[]
   gpxMetrics: GpxMetrics | null
 }
@@ -27,12 +28,14 @@ export type Action =
   | { type: 'ERROR'; error: string }
   | { type: 'TOGGLE_THEME' }
   | { type: 'TOGGLE_SIDEBAR' }
+  | { type: 'TOGGLE_RAW' }
   | { type: 'SET_RECENT_FILES'; files: RecentFile[] }
 
 const FILE_EXT_RE = /\.(xml|gpx|svg|rss|atom|xhtml)$/i
 
 function initState(): State {
   const savedTheme = (localStorage.getItem('xml-structura-theme') as Theme) || 'dark'
+  const savedRaw = localStorage.getItem('xml-structura-raw') === 'true'
   return {
     file: null,
     tree: null,
@@ -41,6 +44,7 @@ function initState(): State {
     progress: 0,
     theme: savedTheme,
     sidebarOpen: true,
+    preserveRaw: savedRaw,
     recentFiles: loadRecentFiles(),
     gpxMetrics: null,
   }
@@ -63,6 +67,11 @@ function appReducer(state: State, action: Action): State {
     }
     case 'TOGGLE_SIDEBAR':
       return { ...state, sidebarOpen: !state.sidebarOpen }
+    case 'TOGGLE_RAW': {
+      const newRaw = !state.preserveRaw
+      localStorage.setItem('xml-structura-raw', String(newRaw))
+      return { ...state, preserveRaw: newRaw }
+    }
     case 'SET_RECENT_FILES':
       return { ...state, recentFiles: action.files }
     default:
@@ -81,18 +90,22 @@ export function useParser() {
 
     const builder = createTreeBuilder()
 
-    parseStream(file, {
-      onOpenTag: (tag, attrs) => builder.onOpenTag(tag, attrs),
-      onText: (text) => builder.onText(text),
-      onCloseTag: (tag) => builder.onCloseTag(tag),
-      onProgress: (pct) => dispatch({ type: 'PROGRESS', progress: pct }),
-      onComplete: () => {
-        const tree = builder.root
-        const gpxMetrics = extractGpxMetrics(tree)
-        dispatch({ type: 'COMPLETE', tree, gpxMetrics })
+    parseStream(
+      file,
+      {
+        onOpenTag: (tag, attrs) => builder.onOpenTag(tag, attrs),
+        onText: (text) => builder.onText(text),
+        onCloseTag: (tag) => builder.onCloseTag(tag),
+        onProgress: (pct) => dispatch({ type: 'PROGRESS', progress: pct }),
+        onComplete: () => {
+          const tree = builder.root
+          const gpxMetrics = extractGpxMetrics(tree)
+          dispatch({ type: 'COMPLETE', tree, gpxMetrics })
+        },
+        onError: (err) => dispatch({ type: 'ERROR', error: err.message }),
       },
-      onError: (err) => dispatch({ type: 'ERROR', error: err.message }),
-    })
+      state.preserveRaw
+    )
   }, [])
 
   return { state, dispatch, handleFile }

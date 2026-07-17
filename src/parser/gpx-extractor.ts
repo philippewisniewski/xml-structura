@@ -1,4 +1,10 @@
-import type { TreeNode } from './tree-builder'
+import type { TreeNode, Attribute } from './tree-builder'
+
+// Look up an attribute value by name from the ordered tuple array.
+function attr(node: TreeNode, name: string): string | undefined {
+  const found = (node.attributes as Attribute[]).find(([k]) => k === name)
+  return found ? found[1] : undefined
+}
 
 export interface GpxMetrics {
   name: string
@@ -47,8 +53,8 @@ export function extractGpxMetrics(tree: TreeNode): GpxMetrics | null {
       let first = true
 
       for (const pt of pts) {
-        const lat = parseFloat(pt.attributes['lat'] ?? '0')
-        const lon = parseFloat(pt.attributes['lon'] ?? '0')
+        const lat = parseFloat(attr(pt, 'lat') ?? '0')
+        const lon = parseFloat(attr(pt, 'lon') ?? '0')
         const eleText = findTextNode(pt, 'ele')
         const ele = eleText ? parseFloat(eleText) : 0
         const time = findTextNode(pt, 'time')

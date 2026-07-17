@@ -1,7 +1,8 @@
 import sax from 'sax'
+import type { Attribute } from './tree-builder'
 
 export interface SaxCallbacks {
-  onOpenTag: (tag: string, attrs: Record<string, string>) => void
+  onOpenTag: (tag: string, attrs: Attribute[]) => void
   onText: (text: string) => void
   onCloseTag: (tag: string) => void
   onProgress: (pct: number) => void
@@ -13,21 +14,34 @@ const CHUNK_SIZE = 1024 * 1024
 
 export function parseStream(
   file: File,
-  callbacks: SaxCallbacks
+  callbacks: SaxCallbacks,
+  preserveRaw = false
 ): void {
-  const parser = sax.parser(true, { trim: true, normalize: true })
+  // Raw mode keeps source whitespace and attribute order; the default mode
+  // trims/normalizes so the tree view stays compact and readable.
+  const parser = sax.parser(true, {
+    trim: !preserveRaw,
+    normalize: !preserveRaw,
+  })
 
   parser.onopentag = (node: sax.Tag) => {
-    const attrs: Record<string, string> = {}
+    // sax preserves source attribute order in node.attributes insertion order.
+    const attrs: Attribute[] = []
     for (const [k, v] of Object.entries(node.attributes)) {
-      attrs[k] = String(v)
+      attrs.push([k, String(v)])
     }
     callbacks.onOpenTag(node.name, attrs)
   }
 
   parser.ontext = (text: string) => {
-    const t = text.trim()
-    if (t) callbacks.onText(t)
+    if (preserveRaw) {
+      // Forward all text (including whitespace-only) so raw formatting matches
+      // the source document exactly.
+      if (text.length > 0) callbacks.onText(text)
+    } else {
+      const t = text.trim()
+      if (t) callbacks.onText(t)
+    }
   }
 
   parser.onclosetag = (tag: string) => {
