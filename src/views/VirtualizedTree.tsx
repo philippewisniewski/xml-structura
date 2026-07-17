@@ -97,7 +97,7 @@ export function VirtualizedTree({ roots, preserveRaw = false }: { roots: TreeNod
         <div style={{ position: 'absolute', top: first * LINE_HEIGHT, left: 0, right: 0 }}>
           <div className="flex">
             <GutterNumbers slice={slice} first={first} />
-            <pre className="text-xs leading-[20px] m-0 flex-1 pl-3">
+            <pre className="text-xs leading-[20px] m-0 flex-1">
               <code>
                 {slice.map((row, i) => (
                   <div
