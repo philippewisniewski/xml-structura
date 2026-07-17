@@ -55,7 +55,7 @@ export function JsonView({ tree }: JsonViewProps) {
   }, [tree])
 
   return (
-    <pre className="p-3 overflow-auto h-full text-xs leading-relaxed">
+    <pre className="overflow-auto h-full text-xs leading-relaxed">
       <code>{json}</code>
     </pre>
   )
