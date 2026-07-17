@@ -10,7 +10,7 @@ interface TreeViewProps {
 // so there is no size threshold and no separate "heavy node" code path.
 export function TreeView({ tree }: TreeViewProps) {
   return (
-    <div className="h-full p-3 overflow-hidden">
+    <div className="h-full overflow-hidden">
       <VirtualizedTree roots={tree.children} />
     </div>
   )
