@@ -88,7 +88,9 @@ export default function App() {
         onDownload={onDownload}
         onThemeToggle={() => dispatch({ type: 'TOGGLE_THEME' })}
         onSidebarToggle={() => dispatch({ type: 'TOGGLE_SIDEBAR' })}
+        onRawToggle={() => dispatch({ type: 'TOGGLE_RAW' })}
         theme={state.theme}
+        preserveRaw={state.preserveRaw}
         fileName={state.file?.name ?? ''}
         hasResult={state.status === 'done'}
       />
@@ -99,7 +101,7 @@ export default function App() {
         <div className="flex flex-1 min-w-0">
           <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
             {state.tree ? (
-              <TreeView tree={state.tree} />
+              <TreeView tree={state.tree} preserveRaw={state.preserveRaw} />
             ) : (
               <div className="flex items-center justify-center h-full text-gray-600 text-xs">
                 Load an XML file to view its structure

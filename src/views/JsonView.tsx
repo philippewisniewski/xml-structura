@@ -14,8 +14,13 @@ export function treeToObject(node: TreeNode): unknown {
 function buildNode(node: TreeNode): unknown {
   const result: Record<string, unknown> = {}
 
-  if (Object.keys(node.attributes).length > 0) {
-    result['@attributes'] = node.attributes
+  if (node.attributes.length > 0) {
+    // Rebuild as an object in source order from the ordered tuple array.
+    const attrs: Record<string, string> = {}
+    for (const [k, v] of node.attributes) {
+      attrs[k] = v
+    }
+    result['@attributes'] = attrs
   }
 
   if (node.text && node.children.length === 0) {

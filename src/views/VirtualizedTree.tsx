@@ -12,7 +12,7 @@ export interface Row {
   node: TreeNode
   hasChildren: boolean
   collapsed: boolean
-  type: 'open' | 'close'
+  type: 'open' | 'close' | 'whitespace'
 }
 
 // Flatten the root children into visible rows. `collapsed` holds positional
@@ -20,12 +20,17 @@ export interface Row {
 // exact bug from issue #23, avoided by using index-based paths).
 // For every expanded container node we also emit a closing </tag> row right
 // after its children, so the view mirrors the literal input XML structure.
-function flatten(roots: TreeNode[], collapsed: Set<string>, out: Row[]): void {
+// When raw formatting is enabled, whitespace-only text captured between
+// elements is emitted as its own row so the source layout is preserved.
+function flatten(roots: TreeNode[], collapsed: Set<string>, preserveRaw: boolean, out: Row[]): void {
   const walk = (nodes: TreeNode[], parentKey: string, depth: number) => {
     nodes.forEach((node, i) => {
       const key = `${parentKey}.${i}`
       const hasChildren = node.children.length > 0
       const isCollapsed = collapsed.has(key)
+      if (preserveRaw && node.whitespace) {
+        out.push({ key: `${key}#ws`, depth, node, hasChildren: false, collapsed: false, type: 'whitespace' })
+      }
       out.push({ key, depth, node, hasChildren, collapsed: isCollapsed, type: 'open' })
       if (hasChildren) {
         if (!isCollapsed) {
@@ -43,7 +48,8 @@ function flatten(roots: TreeNode[], collapsed: Set<string>, out: Row[]): void {
 // closing row (see rowClose) once their children are listed.
 function rowXml(depth: number, node: TreeNode): string {
   const pad = '  '.repeat(depth)
-  const attrs = Object.entries(node.attributes)
+  // Attributes are rendered in source order (ordered tuple array).
+  const attrs = node.attributes
     .map(([k, v]) => ` ${k}="${v}"`)
     .join('')
   let suffix: string
@@ -57,7 +63,7 @@ function rowClose(depth: number, node: TreeNode): string {
   return `${'  '.repeat(depth)}</${node.tag}>`
 }
 
-export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
+export function VirtualizedTree({ roots, preserveRaw = false }: { roots: TreeNode[]; preserveRaw?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [height, setHeight] = useState(400)
@@ -65,9 +71,9 @@ export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
 
   const rows = useMemo(() => {
     const out: Row[] = []
-    flatten(roots, collapsed, out)
+    flatten(roots, collapsed, preserveRaw, out)
     return out
-  }, [roots, collapsed])
+  }, [roots, collapsed, preserveRaw])
 
   const toggle = (key: string) =>
     setCollapsed((prev) => {
@@ -100,14 +106,20 @@ export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
                     className="hover:bg-gray-700/20"
                   >
                     <GutterRow row={row} lineNumber={first + i + 1} onToggle={toggle} />
-                    <span
-                      className="whitespace-pre"
-                      dangerouslySetInnerHTML={{
-                        __html: highlightXmlLine(
-                          row.type === 'close' ? rowClose(row.depth, row.node) : rowXml(row.depth, row.node)
-                        )
-                      }}
-                    />
+                    {row.type === 'whitespace' ? (
+                      <span className="whitespace-pre text-gray-600">
+                        {row.node.whitespace}
+                      </span>
+                    ) : (
+                      <span
+                        className="whitespace-pre"
+                        dangerouslySetInnerHTML={{
+                          __html: highlightXmlLine(
+                            row.type === 'close' ? rowClose(row.depth, row.node) : rowXml(row.depth, row.node)
+                          )
+                        }}
+                      />
+                    )}
                   </div>
                 ))}
               </code>

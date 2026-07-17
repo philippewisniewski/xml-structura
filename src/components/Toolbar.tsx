@@ -6,15 +6,17 @@ interface ToolbarProps {
   onDownload: () => void
   onThemeToggle: () => void
   onSidebarToggle: () => void
+  onRawToggle: () => void
   theme: Theme
+  preserveRaw: boolean
   fileName: string
   hasResult: boolean
 }
 
 export function Toolbar({
   onOpenFile, onCopy, onDownload,
-  onThemeToggle, onSidebarToggle, theme,
-  fileName, hasResult
+  onThemeToggle, onSidebarToggle, onRawToggle, theme,
+  preserveRaw, fileName, hasResult
 }: ToolbarProps) {
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-700/50 bg-gray-900/80 backdrop-blur-sm shrink-0">
@@ -65,6 +67,17 @@ export function Toolbar({
 
       <div className="h-4 w-px bg-gray-600" />
 
+      <button
+        onClick={onRawToggle}
+        className={`px-2 py-1 rounded text-xs transition-colors ${
+          preserveRaw
+            ? 'bg-blue-600 text-white hover:bg-blue-500'
+            : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+        }`}
+        title="Preserve raw formatting (attribute order + whitespace)"
+      >
+        Raw
+      </button>
       <button
         onClick={onThemeToggle}
         className="px-2 py-1 rounded text-xs bg-gray-800 text-gray-400 hover:bg-gray-700 transition-colors"
