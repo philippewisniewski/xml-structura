@@ -12,6 +12,16 @@ export function treeToObject(node: TreeNode): unknown {
 }
 
 function buildNode(node: TreeNode): unknown {
+  if (node.kind === 'comment') {
+    return { '#comment': node.text ?? '' }
+  }
+  if (node.kind === 'cdata') {
+    return { '#cdata': node.text ?? '' }
+  }
+  if (node.kind === 'processinginstruction') {
+    return { '#pi': { target: node.text ?? '', body: node.instructionBody ?? '' } }
+  }
+
   const result: Record<string, unknown> = {}
 
   if (Object.keys(node.attributes).length > 0) {

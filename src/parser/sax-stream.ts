@@ -4,6 +4,11 @@ export interface SaxCallbacks {
   onOpenTag: (tag: string, attrs: Record<string, string>) => void
   onText: (text: string) => void
   onCloseTag: (tag: string) => void
+  onComment: (text: string) => void
+  onProcessingInstruction: (name: string, body: string) => void
+  onOpenCData: () => void
+  onCData: (text: string) => void
+  onCloseCData: () => void
   onProgress: (pct: number) => void
   onComplete: () => void
   onError: (err: Error) => void
@@ -15,7 +20,9 @@ export function parseStream(
   file: File,
   callbacks: SaxCallbacks
 ): void {
-  const parser = sax.parser(true, { trim: true, normalize: true })
+  // trim/normalize are intentionally off so comment, PI, and CDATA content is
+  // preserved verbatim; callers handle whitespace themselves.
+  const parser = sax.parser(true, {})
 
   parser.onopentag = (node: sax.Tag) => {
     const attrs: Record<string, string> = {}
@@ -32,6 +39,26 @@ export function parseStream(
 
   parser.onclosetag = (tag: string) => {
     callbacks.onCloseTag(tag)
+  }
+
+  parser.oncomment = (text: string) => {
+    callbacks.onComment(text)
+  }
+
+  parser.onprocessinginstruction = (pi: { name: string; body: string }) => {
+    callbacks.onProcessingInstruction(pi.name, pi.body ?? '')
+  }
+
+  parser.onopencdata = () => {
+    callbacks.onOpenCData()
+  }
+
+  parser.oncdata = (text: string) => {
+    callbacks.onCData(text)
+  }
+
+  parser.onclosecdata = () => {
+    callbacks.onCloseCData()
   }
 
   parser.onend = () => {

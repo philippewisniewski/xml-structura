@@ -85,6 +85,11 @@ export function useParser() {
       onOpenTag: (tag, attrs) => builder.onOpenTag(tag, attrs),
       onText: (text) => builder.onText(text),
       onCloseTag: (tag) => builder.onCloseTag(tag),
+      onComment: (text) => builder.onComment(text),
+      onProcessingInstruction: (name, body) => builder.onProcessingInstruction(name, body),
+      onOpenCData: () => builder.onOpenCData(),
+      onCData: (text) => builder.onCData(text),
+      onCloseCData: () => builder.onCloseCData(),
       onProgress: (pct) => dispatch({ type: 'PROGRESS', progress: pct }),
       onComplete: () => {
         const tree = builder.root
