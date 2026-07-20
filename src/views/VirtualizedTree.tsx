@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from 'react'
+import { memo, useMemo, useRef, useState, useCallback } from 'react'
 import type { TreeNode } from '../parser/tree-builder'
 import { highlightXmlLine } from './highlightXml'
 import { GutterRow, GutterNumbers } from '../components/LineGutter'
@@ -61,6 +61,12 @@ export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
   const [scrollTop, setScrollTop] = useState(0)
   const [height, setHeight] = useState(400)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  // Measured pixel height of each row key (wrapped lines are taller than one
+  // LINE_HEIGHT). Used so the gutter and the tree body stay aligned and the
+  // virtualized offsets reflect real content height.
+  const heightsRef = useRef<Map<string, number>>(new Map())
+  const [, force] = useState(0)
+  const bump = useCallback(() => force((n) => n + 1), [])
 
   const rows = useMemo(() => {
     const out: Row[] = []
@@ -76,9 +82,45 @@ export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
       return next
     })
 
-  const first = Math.max(0, Math.floor(scrollTop / LINE_HEIGHT) - OVERSCAN)
-  const last = Math.min(rows.length, first + Math.ceil(height / LINE_HEIGHT) + 2 * OVERSCAN)
+  // Cumulative offsets from measured (or estimated) row heights. Recomputed on
+  // every render so new measurements are reflected immediately.
+  const offsets = useMemo(() => {
+    const acc: number[] = new Array(rows.length)
+    let y = 0
+    for (let i = 0; i < rows.length; i++) {
+      acc[i] = y
+      y += heightsRef.current.get(rows[i].key) ?? LINE_HEIGHT
+    }
+    return { acc, total: y }
+  }, [rows])
+
+  const first = Math.max(
+    0,
+    Math.max(
+      0,
+      offsets.acc.findIndex((o, i) => o + (heightsRef.current.get(rows[i].key) ?? LINE_HEIGHT) > scrollTop)
+    ) - OVERSCAN
+  )
+  let last = rows.length
+  for (let i = first; i < rows.length; i++) {
+    if (offsets.acc[i] > scrollTop + height) {
+      last = i + OVERSCAN
+      break
+    }
+  }
   const slice = rows.slice(first, last)
+
+  const measure = useCallback(
+    (key: string, el: HTMLDivElement | null) => {
+      if (!el) return
+      const h = el.offsetHeight
+      if (h && heightsRef.current.get(key) !== h) {
+        heightsRef.current.set(key, h)
+        bump()
+      }
+    },
+    [bump]
+  )
 
   return (
     <div
@@ -86,21 +128,22 @@ export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
       onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
       className="h-full overflow-auto bg-gray-900/40 border border-gray-700/40 rounded"
     >
-      <div style={{ height: rows.length * LINE_HEIGHT, position: 'relative' }}>
-        <div style={{ position: 'absolute', top: first * LINE_HEIGHT, left: 0, right: 0 }}>
+      <div style={{ height: offsets.total, position: 'relative' }}>
+        <div style={{ position: 'absolute', top: offsets.acc[first] ?? 0, left: 0, right: 0 }}>
           <div className="flex">
-            <GutterNumbers slice={slice} first={first} />
-            <pre className="text-xs leading-[20px] m-0 flex-1 pl-1">
+            <GutterNumbers slice={slice} first={first} heights={heightsRef.current} />
+            <pre className="text-xs leading-[20px] m-0 flex-1 min-w-0 pl-1 overflow-hidden">
               <code>
                 {slice.map((row, i) => (
                   <div
                     key={row.key}
-                    style={{ display: 'flex', height: LINE_HEIGHT }}
+                    ref={(el) => measure(row.key, el)}
+                    style={{ display: 'flex' }}
                     className="hover:bg-gray-700/20"
                   >
                     <GutterRow row={row} lineNumber={first + i + 1} onToggle={toggle} />
                     <span
-                      className="whitespace-pre"
+                      className="whitespace-pre-wrap break-words"
                       dangerouslySetInnerHTML={{
                         __html: highlightXmlLine(
                           row.type === 'close' ? rowClose(row.depth, row.node) : rowXml(row.depth, row.node)
