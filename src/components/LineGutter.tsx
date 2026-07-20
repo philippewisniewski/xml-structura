@@ -39,16 +39,13 @@ export function GutterRow({
 }
 
 // Fixed-width line-number column. Rendered once per slice (outside the row
-// loop) so it scrolls in lock-step with the tree content. Each number cell
-// takes the same measured height as its tree row so wrapped lines stay aligned.
+// loop) so it scrolls in lock-step with the tree content.
 export function GutterNumbers({
   slice,
   first,
-  heights,
 }: {
   slice: Row[]
   first: number
-  heights: Map<string, number>
 }) {
   return (
     <div
@@ -58,7 +55,7 @@ export function GutterNumbers({
       {slice.map((row, i) => (
         <div
           key={row.key}
-          style={{ height: heights.get(row.key) ?? 20, lineHeight: '20px' }}
+          style={{ height: 20, lineHeight: '20px' }}
         >
           {first + i + 1}
         </div>
