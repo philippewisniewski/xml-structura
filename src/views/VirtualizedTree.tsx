@@ -42,7 +42,6 @@ function flatten(roots: TreeNode[], collapsed: Set<string>, out: Row[]): void {
 // text on the same line; container nodes open with '>' and get a separate
 // closing row (see rowClose) once their children are listed.
 function rowXml(depth: number, node: TreeNode): string {
-  const pad = '  '.repeat(depth)
   const attrs = Object.entries(node.attributes)
     .map(([k, v]) => ` ${k}="${v}"`)
     .join('')
@@ -50,11 +49,11 @@ function rowXml(depth: number, node: TreeNode): string {
   if (node.children.length > 0) suffix = '>'
   else if (node.text != null) suffix = `>${node.text}</${node.tag}>`
   else suffix = `></${node.tag}>`
-  return `${pad}<${node.tag}${attrs}${suffix}`
+  return `<${node.tag}${attrs}${suffix}`
 }
 
 function rowClose(depth: number, node: TreeNode): string {
-  return `${'  '.repeat(depth)}</${node.tag}>`
+  return `</${node.tag}>`
 }
 
 export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
@@ -91,7 +90,7 @@ export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
         <div style={{ position: 'absolute', top: first * LINE_HEIGHT, left: 0, right: 0 }}>
           <div className="flex">
             <GutterNumbers slice={slice} first={first} />
-            <pre className="text-xs leading-[20px] m-0 flex-1 pl-3">
+            <pre className="text-xs leading-[20px] m-0 flex-1 pl-1">
               <code>
                 {slice.map((row, i) => (
                   <div

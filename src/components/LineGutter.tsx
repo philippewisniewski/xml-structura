@@ -1,6 +1,6 @@
 import type { Row } from '../views/VirtualizedTree'
 
-const INDENT_WIDTH = '2ch'
+const INDENT_WIDTH = '1ch'
 
 // One left-cell of the tree: a vertical indent guide per depth level, the
 // collapse toggle (▸/▾) for container nodes, and the line number is rendered by
@@ -20,12 +20,12 @@ export function GutterRow({
         <span
           key={d}
           className="select-none shrink-0 text-gray-700/50"
-          style={{ width: INDENT_WIDTH, borderLeft: '1px solid currentColor', marginLeft: 4 }}
+          style={{ width: INDENT_WIDTH, borderLeft: '1px solid currentColor', marginLeft: 2 }}
         >
           {' '}
         </span>
       ))}
-      <span className="text-gray-600 select-none mr-2 shrink-0" style={{ width: '2ch' }}>
+      <span className="text-gray-600 select-none mr-1 shrink-0" style={{ width: '1.5ch' }}>
         {row.type === 'open' && row.hasChildren ? (
           <span className="cursor-pointer" onClick={() => onToggle(row.key)}>
             {row.collapsed ? '▸' : '▾'}
