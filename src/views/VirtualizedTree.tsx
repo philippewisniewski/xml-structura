@@ -40,16 +40,28 @@ function flatten(roots: TreeNode[], collapsed: Set<string>, out: Row[]): void {
 
 // Build the raw XML for an opening row. Leaf/text nodes carry their own closing
 // text on the same line; container nodes open with '>' and get a separate
-// closing row (see rowClose) once their children are listed.
+// closing row (see rowClose) once their children are listed. Comments,
+// processing instructions, and CDATA are special leaf kinds rendered verbatim.
 function rowXml(depth: number, node: TreeNode): string {
-  const attrs = Object.entries(node.attributes)
-    .map(([k, v]) => ` ${k}="${v}"`)
-    .join('')
-  let suffix: string
-  if (node.children.length > 0) suffix = '>'
-  else if (node.text != null) suffix = `>${node.text}</${node.tag}>`
-  else suffix = `></${node.tag}>`
-  return `<${node.tag}${attrs}${suffix}`
+  switch (node.kind) {
+    case 'comment':
+      return `<!--${node.text ?? ''}-->`
+    case 'processinginstruction':
+      return `<?${node.text ?? ''}${node.instructionBody ? ' ' + node.instructionBody : ''}?>`
+    case 'cdata':
+      return `<![CDATA[${node.text ?? ''}]]>`
+    case 'element':
+    default: {
+      const attrs = Object.entries(node.attributes)
+        .map(([k, v]) => ` ${k}="${v}"`)
+        .join('')
+      let suffix: string
+      if (node.children.length > 0) suffix = '>'
+      else if (node.text != null) suffix = `>${node.text}</${node.tag}>`
+      else suffix = `></${node.tag}>`
+      return `<${node.tag}${attrs}${suffix}`
+    }
+  }
 }
 
 function rowClose(depth: number, node: TreeNode): string {
@@ -99,6 +111,11 @@ export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
                     className="hover:bg-gray-700/20"
                   >
                     <GutterRow row={row} lineNumber={first + i + 1} onToggle={toggle} />
+                    {row.type === 'open' && row.node.kind !== 'element' && (
+                      <span className={badgeClass(row.node.kind) + ' mr-1 select-none'}>
+                        {badgeLabel(row.node.kind)}
+                      </span>
+                    )}
                     <span
                       className="whitespace-pre"
                       dangerouslySetInnerHTML={{
@@ -116,6 +133,24 @@ export function VirtualizedTree({ roots }: { roots: TreeNode[] }) {
       </div>
     </div>
   )
+}
+
+function badgeLabel(kind: TreeNode['kind']): string {
+  switch (kind) {
+    case 'comment': return 'comment'
+    case 'processinginstruction': return 'pi'
+    case 'cdata': return 'cdata'
+    default: return ''
+  }
+}
+
+function badgeClass(kind: TreeNode['kind']): string {
+  switch (kind) {
+    case 'comment': return 'text-[10px] uppercase tracking-wide text-gray-500'
+    case 'processinginstruction': return 'text-[10px] uppercase tracking-wide text-cyan-500'
+    case 'cdata': return 'text-[10px] uppercase tracking-wide text-orange-500'
+    default: return ''
+  }
 }
 
 export default memo(VirtualizedTree)

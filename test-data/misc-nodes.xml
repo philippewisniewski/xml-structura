@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This file exercises comments, processing instructions, and CDATA -->
+<?xml-stylesheet type="text/xsl" href="style.xsl"?>
+<root id="demo">
+  <![CDATA[Raw content with <tags> & special chars stays intact]]>
+  <note>Regular text node</note>
+  <!-- A nested comment -->
+  <item>
+    <?custom-directive value="1"?>
+    <![CDATA[multi
+line
+cdata]]>
+  </item>
+</root>
