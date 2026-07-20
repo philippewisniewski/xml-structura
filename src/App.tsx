@@ -96,7 +96,7 @@ export default function App() {
         {state.sidebarOpen && (
           <Sidebar recentFiles={state.recentFiles} onSelect={handleRecentFile} />
         )}
-        <div className="flex flex-1 min-w-0">
+        <div className="flex min-w-0">
           <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
             {state.tree ? (
               <TreeView tree={state.tree} />
